@@ -3,12 +3,15 @@ import cv2 # For reading and writing TIFF images (OpenCV is good for this)
 import matplotlib.pyplot as plt # For plotting
 import time
 import cupy as cp # Import CuPy
+import matplotlib.animation as animation # Import animation module
 
 # --- Parameters (from Mathematica code) ---
 lam = 0.637  # measured in micrometers (wavelength)
 pix = 3.45   # measured in micrometers (pixel size)
 zf = 20000   # replace number with focus distance in micrometers
-n = 8 # Number of iterations for the Fresnel transform (just for performance)
+n = 100 # Number of iterations for the Fresnel transform
+z_step = 100 # Step size for z in micrometers
+initial_z = 20000 # Initial add z value in micrometers
 
 # --- Function Definitions ---
 
@@ -84,26 +87,61 @@ size_x, size_y = ref_image_gpu.shape # Now getting shape from GPU array
 # 2. Perform calculations (corresponds to 'con' in Mathematica) on GPU
 con_gpu = raw_image_gpu / (ref_image_gpu**2)
 
-# 3. Apply Fresnel transform and display result on GPU
+# 3. Apply Fresnel transform and store results for animation
+# Create a list to store the frames (CPU arrays for matplotlib)
+frames = []
+z_values = [] # To store the z value for each frame's title
+
+print("Starting Fresnel transform calculations for animation frames...")
 for i in range(n):
-    print(f"Iteration {i+1}: Processing Fresnel transform...")
-    reconstructed_image_gpu = cp.abs(fresnel((i+1)*10000, lam, con_gpu))**2
-
-
-# Transfer the final result back to CPU for plotting with matplotlib
-reconstructed_image_cpu = cp.asnumpy(reconstructed_image_gpu)
+    current_z = (i + 1) * z_step + initial_z  # Calculate current z value in micrometers
+    print(f"Calculating frame {i+1}/{n} at z = {current_z} µm...")
+    
+    # Perform Fresnel transform on GPU
+    reconstructed_image_gpu = cp.abs(fresnel(current_z, lam, con_gpu))**2
+    
+    # Transfer the result back to CPU for plotting
+    reconstructed_image_cpu = cp.asnumpy(reconstructed_image_gpu)
+    
+    # Append the CPU array to the frames list
+    frames.append(reconstructed_image_cpu)
+    z_values.append(current_z) # Store current z value
 
 end_time = time.time()  # End timing
 
-print(f"Computation done. Time taken: {end_time - start_time:.2f} seconds.")
+print(f"All {n} Fresnel transforms calculated. Time taken: {end_time - start_time:.2f} seconds.")
 
-# Display the image using matplotlib
-plt.figure(figsize=(8, 8))
-plt.imshow(reconstructed_image_cpu, cmap='gray') # Use 'gray' colormap for intensity images
-plt.title(f'Reconstructed Image (zf={zf} µm)')
-plt.colorbar(label='Intensity')
-plt.axis('off') # Turn off axis ticks and labels
+# --- Animation Setup ---
+
+fig, ax = plt.subplots(figsize=(8, 8))
+im = ax.imshow(frames[0], cmap='gray', vmin=0, vmax=frames[0].max()) # Initialize with the first frame
+ax.set_title(f'Fresnel Transform at z = {z_values[0]} µm')
+ax.axis('off')
+cbar = fig.colorbar(im, ax=ax, label='Intensity')
+
+def update(frame_index):
+    """
+    Updates the image data for each frame of the animation.
+    """
+    im.set_array(frames[frame_index])
+    ax.set_title(f'Fresnel Transform at z = {z_values[frame_index]} µm')
+    # Update colorbar limits if intensity range changes significantly, though vmin/vmax might be fine
+    # im.set_clim(vmin=frames[frame_index].min(), vmax=frames[frame_index].max())
+    return [im, ax.title] # Return a list of artists that were modified
+
+print("Creating animation...")
+# Create the animation
+# interval: delay between frames in milliseconds
+# blit: optimize drawing by only redrawing what has changed (can be tricky with titles)
+ani = animation.FuncAnimation(fig, update, frames=len(frames), interval=50, blit=False)
+
+# --- Display or Save Animation ---
+
+# To display the animation (this will open a new window)
 plt.show()
 
-# Optional: Save the reconstructed image (save from CPU array)
-# cv2.imwrite("reconstructed_image.tiff", reconstructed_image_cpu.astype(np.float32))
+# To save the animation (requires 'ffmpeg' or 'imagemagick' installed)
+# You might need to install ffmpeg: `sudo apt-get install ffmpeg` on Debian/Ubuntu
+# print("Saving animation... This might take a while.")
+# ani.save('fresnel_animation.mp4', writer='ffmpeg', fps=20) # Adjust fps as needed
+# print("Animation saved as fresnel_animation.mp4")

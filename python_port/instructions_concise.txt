@@ -1,0 +1,8 @@
+download :
+Python
+cuda
+pip
+some other stuff prob
+
+run this in terminal:
+pip install -r requirements.txt

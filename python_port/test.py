@@ -6,7 +6,8 @@ import time
 # --- Parameters (from Mathematica code) ---
 lam = 0.637  # measured in micrometers (wavelength)
 pix = 3.45   # measured in micrometers (pixel size)
-zf = 80000   # replace number with focus distance in micrometers
+zf = 30000   # replace number with focus distance in micrometers
+n= 8 # Number of iterations for the Fresnel transform (rn just for performace)
 
 # --- Function Definitions ---
 
@@ -57,8 +58,8 @@ start_time = time.time()  # Start timing
 # Ensure 'refDat.tiff' and 'rawDat.tiff' are in the same directory as your Python script
 # or provide their full paths.
 try:
-    ref_image_raw = cv2.imread("refDat.tiff", cv2.IMREAD_GRAYSCALE)
-    raw_image_raw = cv2.imread("rawDat.tiff", cv2.IMREAD_GRAYSCALE)
+    ref_image_raw = cv2.imread("/home/berg/Documents/git/speedy-DIH/python_port/refDat.tiff", cv2.IMREAD_GRAYSCALE)
+    raw_image_raw = cv2.imread("/home/berg/Documents/git/speedy-DIH/python_port/rawDat.tiff", cv2.IMREAD_GRAYSCALE)
 
     if ref_image_raw is None or raw_image_raw is None:
         raise FileNotFoundError("Make sure 'refDat.tiff' and 'rawDat.tiff' exist in the script directory.")
@@ -87,7 +88,10 @@ con = raw_image / (ref_image**2)
 
 # 3. Apply Fresnel transform and display result
 # Evaluate Abs[fresnel[zf, lam, con]^2]
-reconstructed_image = np.abs(fresnel(zf, lam, con))**2
+for i in range(n):
+    print(f"Iteration {i+1}: Processing Fresnel transform...")
+    reconstructed_image = np.abs(fresnel((i+1)*10000, lam, con))**2
+
 
 end_time = time.time()  # End timing
 
