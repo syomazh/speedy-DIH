@@ -1,0 +1,72 @@
+````
+To set up and run the GPU-accelerated holographic reconstruction code, follow these steps:
+
+**1. Hardware Requirements:**
+* **NVIDIA GPU:** An NVIDIA graphics card is essential as the code leverages CUDA for acceleration.
+
+**2. Software Requirements & Installation:**
+
+    * **CUDA Toolkit:**
+        * The CUDA Toolkit is NVIDIA's platform for parallel computing on GPUs. You need to install the appropriate version for your operating system and GPU.
+        * **Download:** Visit the official NVIDIA CUDA Toolkit download page: `https://developer.nvidia.com/cuda-downloads`
+        * **Installation:** Follow the installation instructions provided on the NVIDIA website for your specific OS (Windows, Linux, macOS). Ensure that the CUDA samples and development components are selected during installation.
+        * **Verification:** After installation, open a terminal/command prompt and run `nvcc --version`. This command should display your installed CUDA version, confirming a successful installation.
+
+    * **Python:**
+        * Ensure you have Python 3.7 or newer installed. You can download it from `https://www.python.org/downloads/`.
+
+    * **Anaconda/Miniconda (Recommended):**
+        * Using a virtual environment manager like Anaconda or Miniconda is highly recommended to manage Python packages and avoid conflicts.
+        * **Download Anaconda:** `https://www.anaconda.com/products/distribution`
+        * **Download Miniconda:** `https://docs.conda.io/en/latest/miniconda.html`
+        * **Create a new environment:** Once installed, open your Anaconda Prompt (Windows) or terminal (Linux/macOS) and create a new environment:
+            ```bash
+            conda create -n holo_gpu python=3.9  # You can choose a different Python version
+            conda activate holo_gpu
+            ```
+
+    * **Install Required Python Libraries:**
+        * Activate your new conda environment (if you created one): `conda activate holo_gpu`
+        * **CuPy:** This is the core library for GPU acceleration. It's crucial to install the CuPy version that matches your CUDA Toolkit version.
+            * **Check your CUDA version:** Run `nvcc --version` (e.g., if it says `CUDA Version 11.8`, you'll use `cuda11x`).
+            * **Install CuPy:**
+                ```bash
+                pip install cupy-cudaXX  # Replace XX with your CUDA major version, e.g., cupy-cuda11x or cupy-cuda12x
+                ```
+                *If you encounter issues, refer to the CuPy installation guide: `https://docs.cupy.dev/en/stable/install.html`*
+        * **NumPy:**
+            ```bash
+            pip install numpy
+            ```
+        * **OpenCV (cv2):** For image loading and saving.
+            ```bash
+            pip install opencv-python
+            ```
+        * **Matplotlib:** For plotting the results.
+            ```bash
+            pip install matplotlib
+            ```
+
+**3. Prepare Image Data:**
+* Place your input TIFF images, `refDat.tiff` and `rawDat.tiff`, in the same directory as your Python script. Ensure they are grayscale images.
+
+**4. Run the Code:**
+* Save the provided Python code (the GPU-accelerated version) as a `.py` file (e.g., `holography_gpu.py`).
+* Open your terminal/command prompt, navigate to the directory where you saved the script and images, and ensure your `holo_gpu` (or your chosen environment name) is active.
+* Execute the script:
+    ```bash
+    python holography_gpu.py
+    ```
+
+**5. Verification:**
+* The script will print the computation time. You should observe a significantly faster execution compared to the pure NumPy (CPU) version, especially for larger image sizes.
+* A matplotlib window will pop up displaying the reconstructed image.
+
+**Troubleshooting Tips:**
+
+* **CUDA Compatibility:** The most common issue is an incompatibility between your installed CUDA Toolkit version and the CuPy package. Double-check `nvcc --version` and ensure you install the correct `cupy-cudaXX` version.
+* **Driver Issues:** Ensure your NVIDIA graphics drivers are up to date.
+* **Out of Memory:** If you process very large images, your GPU might run out of memory. You might see `cudaErrorOutOfMemory` or similar errors. Consider using smaller image sizes or a GPU with more VRAM.
+* **FileNotFoundError:** Make sure `refDat.tiff` and `rawDat.tiff` are in the correct directory.
+* **Virtual Environment:** Always activate your virtual environment before running the script to ensure you're using the correct package versions.
+````

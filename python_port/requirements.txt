@@ -1,0 +1,4 @@
+numpy
+opencv-python
+matplotlib
+cupy-cuda12  # IMPORTANT: REPLACE 'XX' with your CUDA version (e.g., cupy-cuda11x or cupy-cuda12x)  
