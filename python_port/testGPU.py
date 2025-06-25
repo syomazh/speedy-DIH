@@ -5,10 +5,10 @@ import time
 import cupy as cp # Import CuPy
 
 # --- Parameters (from Mathematica code) ---
-lam = 0.637  # measured in micrometers (wavelength)
+lam = 0.532  # measured in micrometers (wavelength)
 pix = 3.45   # measured in micrometers (pixel size)
-zf = 20000   # replace number with focus distance in micrometers
-n = 8 # Number of iterations for the Fresnel transform (just for performance)
+zf = 67225   # replace number with focus distance in micrometers
+n = 1 # Number of iterations for the Fresnel transform (just for performance)
 
 # --- Function Definitions ---
 
@@ -59,8 +59,8 @@ start_time = time.time()  # Start timing
 # Use OpenCV (cv2) to import TIFF files. It reads images as NumPy arrays.
 try:
     # Use absolute paths for Linux compatibility
-    ref_image_raw = cv2.imread("/home/berg/Documents/git/speedy-DIH/python_port/refDat.tiff", cv2.IMREAD_GRAYSCALE)
-    raw_image_raw = cv2.imread("/home/berg/Documents/git/speedy-DIH/python_port/rawDat.tiff", cv2.IMREAD_GRAYSCALE)
+    ref_image_raw = cv2.imread("/home/berg/Documents/git/speedy-DIH/python_port/dust_hologram_blank.tiff", cv2.IMREAD_GRAYSCALE)
+    raw_image_raw = cv2.imread("/home/berg/Documents/git/speedy-DIH/python_port/dust_hologram.tiff", cv2.IMREAD_GRAYSCALE)
 
     if ref_image_raw is None or raw_image_raw is None:
         raise FileNotFoundError("Make sure 'refDat.tiff' and 'rawDat.tiff' exist in the script directory.")
@@ -85,9 +85,12 @@ size_x, size_y = ref_image_gpu.shape # Now getting shape from GPU array
 con_gpu = raw_image_gpu / (ref_image_gpu**2)
 
 # 3. Apply Fresnel transform and display result on GPU
+# reconstructed_image_gpu = cp.abs(fresnel(zf, lam, con_gpu))**2
 for i in range(n):
     print(f"Iteration {i+1}: Processing Fresnel transform...")
     reconstructed_image_gpu = cp.abs(fresnel((i+1)*10000, lam, con_gpu))**2
+
+
 
 
 # Transfer the final result back to CPU for plotting with matplotlib

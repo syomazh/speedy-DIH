@@ -1,0 +1,4 @@
+# --- Parameters (berg dust) ---
+lam = 0.532  # measured in micrometers (wavelength)
+pix = 3.45   # measured in micrometers (pixel size)
+zf = 67225   # replace number with focus distance in micrometers
