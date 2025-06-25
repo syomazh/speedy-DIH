@@ -7,6 +7,9 @@ import time
 lam = 0.532  # measured in micrometers (wavelength)
 pix = 3.45   # measured in micrometers (pixel size)
 zf = 67225   # replace number with focus distance in micrometers
+
+zf_values = [65225, 66225, 68900, 69000, 69100,69500,69700] # Example zf values
+
 n = 1 # Number of iterations for the Fresnel transform (rn just for performace)
 
 # --- Function Definitions ---
@@ -88,7 +91,7 @@ print(f"Original Pixel Size: {pix} µm")
 
 # --- Reconstruction Loop (demonstrating the effect) ---
 print("\n--- Performing Reconstruction with Varying zf ---")
-zf_values = [65225, 66225, 67225, 68225, 69225,70000,80000] # Example zf values
+
 
 fig, axes = plt.subplots(1, len(zf_values), figsize=(4 * len(zf_values), 6))
 if len(zf_values) == 1: # Handle case of single subplot
@@ -109,7 +112,7 @@ for i, current_zf in enumerate(zf_values):
 comp_end_time = time.time()
 print(f"GPU Total computation time: {comp_end_time - start_time:.2f} seconds.")
 
-plt.suptitle("Reconstructed Images at Different zf values")
+plt.suptitle("Reconstructed Images at Different zf values - Angular Spectrum Method")
 plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjust layout to prevent title overlap
 plt.show()
 

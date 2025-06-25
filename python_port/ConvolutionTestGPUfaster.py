@@ -7,8 +7,8 @@ import cupy as cp # Import CuPy
 # --- Parameters (from Mathematica code) ---
 lam = 0.532  # measured in micrometers (wavelength)
 pix = 3.45   # measured in micrometers (pixel size)
-zf = 40000   # replace number with focus distance in micrometers
-n = 1 # Number of iterations for the Fresnel transform (just for performance)
+zf = 67225   # replace number with focus distance in micrometers
+n = 1000 # Number of iterations for the Fresnel transform (just for performance)
 
 # --- Function Definitions ---
 
@@ -67,8 +67,8 @@ try:
 
     # Convert images to complex floating point for calculations
     # and then transfer them to the GPU using cp.asarray
-    ref_image_cpu = ref_image_raw.astype(np.complex128)
-    raw_image_cpu = raw_image_raw.astype(np.complex128)
+    ref_image_cpu = ref_image_raw.astype(np.complex64)
+    raw_image_cpu = raw_image_raw.astype(np.complex64)
 
     ref_image_gpu = cp.asarray(ref_image_cpu)
     raw_image_gpu = cp.asarray(raw_image_cpu)

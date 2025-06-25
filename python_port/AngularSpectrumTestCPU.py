@@ -7,6 +7,8 @@ import time
 lam = 0.532  # measured in micrometers (wavelength)
 pix = 3.45   # measured in micrometers (pixel size)
 zf = 67225   # replace number with focus distance in micrometers
+zf_values = [65225, 66225, 67225, 68225, 69225,70000,80000] # Example zf values
+
 n = 1 # Number of iterations for the Fresnel transform (rn just for performace)
 
 # --- Function Definitions ---
@@ -103,7 +105,7 @@ print(f"Original Pixel Size: {pix} µm")
 # --- Reconstruction Loop (demonstrating the effect) ---
 print("\n--- Performing Reconstruction with Varying zf ---")
 #try a few zf values to observe the effect
-zf_values = [65225, 66225, 67225, 68225, 69225,70000,80000] # Example zf values
+
 
 fig, axes = plt.subplots(1, len(zf_values), figsize=(4 * len(zf_values), 6))
 if len(zf_values) == 1: # Handle case of single subplot
