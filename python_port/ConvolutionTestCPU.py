@@ -7,7 +7,7 @@ import time
 lam = 0.532  # measured in micrometers (wavelength)
 pix = 3.45   # measured in micrometers (pixel size)
 zf = 67225   # replace number with focus distance in micrometers
-n= 10# Number of iterations for the Fresnel transform (rn just for performace)
+n= 30# Number of iterations for the Fresnel transform (rn just for performace)
 
 # --- Function Definitions ---
 

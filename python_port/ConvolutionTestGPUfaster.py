@@ -8,6 +8,10 @@ import cupy as cp # Import CuPy
 lam = 0.532  # measured in micrometers (wavelength)
 pix = 3.45   # measured in micrometers (pixel size)
 zf = 67225   # replace number with focus distance in micrometers
+
+zf_values = [65225, 66225, 68900, 69000, 69100,69500,69700] # Example zf values
+
+
 n = 1000 # Number of iterations for the Fresnel transform (just for performance)
 
 # --- Function Definitions ---

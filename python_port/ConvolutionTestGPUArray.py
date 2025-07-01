@@ -1,60 +1,59 @@
-import cupy as cp # Import CuPy
-import cv2
-import matplotlib.pyplot as plt
+import numpy as np
+import cv2 # For reading and writing TIFF images (OpenCV is good for this)
+import matplotlib.pyplot as plt # For plotting
 import time
+import cupy as cp # Import CuPy
 
 # --- Parameters (from Mathematica code) ---
 lam = 0.532  # measured in micrometers (wavelength)
 pix = 3.45   # measured in micrometers (pixel size)
-zf = 67225   # replace number with focus distance in micrometers
+zf = 68900   # replace number with focus distance in micrometers
+zf_values = [40000, 50000, 60000, 70000, 80000,90000,10000,67225,68900] # Example zf values
+# zf_values = [60000,67225, 78225, ] # Example zf values
 
-zf_values = [40000, 50000, 60000, 70000, 80000,90000,10000,67225 ,68900] # Example zf values
-#zf_values = [67225,68000, 68900, 68925, 68950,] # Example zf values
-n = 1 # Number of iterations for the Fresnel transform (rn just for performace)
+
+n = 1 # Number of iterations for the Fresnel transform (just for performance)
 
 # --- Function Definitions ---
 
-# Fresnel function (Angular Spectrum Method)
-def fresnel(z, lambda_val, image_array, pix_size_orig):
+# Fresnel function
+def fresnel(z, lambda_val, image_array_gpu):
     """
-    Computes the Fresnel propagation of an image using the Angular Spectrum Method.
-    The 'image_array' here is assumed to be the complex field immediately after the hologram plane.
+    Computes the Fresnel propagation of an image on the GPU using CuPy.
+    Equivalent to Mathematica's Fresnel function in the context of this code.
     """
-    size_y, size_x = image_array.shape # Note: cupy shape is (rows, cols) -> (y, x)
+    size_x, size_y = image_array_gpu.shape
+    
+    # Mathematica's Range and Outer for coordinate generation
+    # x values range from -halfSize to halfSize-1
+    # y values range from -halfSizez to halfSizez-1
+    # Note: Mathematica's Floor[size/2.0] gives an integer.
+    # Python's // operator for integer division is equivalent to Floor for positive numbers.
+    halfSize_x = size_x // 2
+    halfSize_y = size_y // 2
 
-    # 1. FFT of the input field
-    # Use cp.fft for GPU-accelerated FFT
-    U0_fft = cp.fft.fftshift(cp.fft.fft2(cp.fft.ifftshift(image_array)))
-
-    # 2. Define spatial frequencies
-    # These are in cycles/micrometer. Multiply by 2*pi to get radians/micrometer.
-    # Use cp.fft.fftfreq and cp.meshgrid for GPU arrays
-    fx = cp.fft.fftfreq(size_x, d=pix_size_orig)
-    fy = cp.fft.fftfreq(size_y, d=pix_size_orig)
-    FX, FY = cp.meshgrid(fx, fy, indexing='xy') # 'xy' for (x,y) grid matching image
-
-    # 3. Calculate the propagation kernel H(fx, fy)
-    k = 2 * cp.pi / lambda_val
+    # Use cp.arange and cp.meshgrid for GPU arrays
+    x_coords = cp.arange(-halfSize_x, size_x - halfSize_x) * pix
+    y_coords = cp.arange(-halfSize_y, size_y - halfSize_y) * pix
     
-    # Argument of the square root: k_z^2 = k^2 - k_x^2 - k_y^2
-    # k_x = 2*pi*fx, k_y = 2*pi*fy
-    arg_sqrt = k**2 - (2*cp.pi*FX)**2 - (2*cp.pi*FY)**2
+    X, Y = cp.meshgrid(x_coords, y_coords, indexing='ij') # 'ij' for matrix indexing
     
-    # Handle evanescent waves: where arg_sqrt < 0, set k_z to 0 (or filter out)
-    # cp.maximum(0, arg_sqrt) ensures that we don't take the sqrt of negative numbers
-    # for the propagating part.
-    k_z = cp.sqrt(cp.maximum(0, arg_sqrt))
+    # The 'Exp' part of the Fresnel kernel - all operations now on GPU
+    exp_term = cp.exp(1j * cp.pi / (lambda_val * z) * (X**2 + Y**2))
     
-    H = cp.exp(1j * k_z * z)
+    # Element-wise multiplication of the image with the exponential term
+    transformed_image_gpu = image_array_gpu * exp_term
     
-    # 4. Multiply by kernel in Fourier space
-    U_fft = U0_fft * H
+    # 2D Fourier Transform using CuPy's FFT
+    # cp.fft.fftshift moves zero-frequency component to center
+    # cp.fft.fft2 performs 2D FFT
+    # cp.fft.ifftshift moves zero-frequency component back
+    fft_result_gpu = cp.fft.fftshift(cp.fft.fft2(cp.fft.ifftshift(transformed_image_gpu)))
     
-    # 5. Inverse FFT to get the propagated field
-    propagated_field = cp.fft.fftshift(cp.fft.ifft2(cp.fft.ifftshift(U_fft)))
+    # Scale factor from Mathematica's Fresnel - also use CuPy's exp
+    scale_factor = (1j / (lambda_val * z)) * cp.exp(1j * (2 * cp.pi / lambda_val) * z)
     
-    return propagated_field
-
+    return scale_factor * fft_result_gpu
 
 # --- Main Program ---
 
@@ -100,7 +99,7 @@ if len(zf_values) == 1: # Handle case of single subplot
 for i, current_zf in enumerate(zf_values):
     print(f"Reconstructing for zf = {current_zf} µm...")
     # Call the angular spectrum fresnel
-    reconstructed_field = fresnel(current_zf, lam, con, pix)
+    reconstructed_field = fresnel(current_zf, lam, con)
     reconstructed_intensity = cp.abs(reconstructed_field)**2
     
     # To display with matplotlib, you need to bring the CuPy array back to the CPU
@@ -112,7 +111,7 @@ for i, current_zf in enumerate(zf_values):
 comp_end_time = time.time()
 print(f"GPU Total computation time: {comp_end_time - start_time:.2f} seconds.")
 
-plt.suptitle("Reconstructed Images at Different zf values - Angular Spectrum Method")
+plt.suptitle("Reconstructed Images at Different zf values - Convolution method")
 plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjust layout to prevent title overlap
 plt.show()
 

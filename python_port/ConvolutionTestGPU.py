@@ -7,8 +7,8 @@ import cupy as cp # Import CuPy
 # --- Parameters (from Mathematica code) ---
 lam = 0.532  # measured in micrometers (wavelength)
 pix = 3.45   # measured in micrometers (pixel size)
-zf = 40000   # replace number with focus distance in micrometers
-n = 1 # Number of iterations for the Fresnel transform (just for performance)
+zf = 67225   # replace number with focus distance in micrometers
+n = 30 # Number of iterations for the Fresnel transform (just for performance)
 
 # --- Function Definitions ---
 
@@ -83,6 +83,12 @@ size_x, size_y = ref_image_gpu.shape # Now getting shape from GPU array
 
 # 2. Perform calculations (corresponds to 'con' in Mathematica) on GPU
 con_gpu = raw_image_gpu / (ref_image_gpu**2)
+
+# --- Physical Scaling Calculation ---
+input_fov_x = size_x * pix
+input_fov_y = size_y * pix
+print(f"Input Field of View: {input_fov_x:.2f} µm x {input_fov_y:.2f} µm")
+print(f"Original Pixel Size: {pix} µm")
 
 # 3. Apply Fresnel transform and display result on GPU
 # reconstructed_image_gpu = cp.abs(fresnel(zf, lam, con_gpu))**2
