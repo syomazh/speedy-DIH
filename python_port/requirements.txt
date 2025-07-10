@@ -1,4 +1,0 @@
-numpy==1.24.4 # Or another stable 1.x version, e.g., 1.24.4, 1.23.5
-opencv-python
-matplotlib
-cupy-cuda12x  # IMPORTANT: REPLACE 'XX' with your CUDA version (e.g., cupy-cuda11x or cupy-cuda12x)  
