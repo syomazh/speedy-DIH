@@ -3,21 +3,19 @@ import cv2
 import matplotlib.pyplot as plt
 import time
 import cupy as cp
-# No need for scipy.stats.kurtosis for this metric
 
-# --- Parameters (from Mathematica code) ---
+# --- Parameters ---
 lam = 0.532  # measured in micrometers (wavelength)
 pix = 3.45   # measured in micrometers (pixel size)
-zf = 68900   # replace number with focus distance in micrometers
-zf_values = [10000, 40000, 50000, 60000, 67225, 68900, 70000, 80000, 90000] # Sorted for better progression
+# zf = 68900   # Not used directly as zf_values is iterated
+zf_values = list(range(40000, 200001, 2000))  # Continue the list in steps of 2000 up to 200000
 
 # --- Function Definitions ---
 
-# Fresnel function (from your original code - already optimized with CuPy)
+# Fresnel function
 def fresnel(z, lambda_val, image_array_gpu):
     """
     Computes the Fresnel propagation of an image on the GPU using CuPy.
-    Equivalent to Mathematica's Fresnel function in the context of this code.
     """
     size_y, size_x = image_array_gpu.shape
     
@@ -39,19 +37,11 @@ def fresnel(z, lambda_val, image_array_gpu):
     
     return scale_factor * fft_result_gpu
 
-# --- New Metric Function: Coefficient of Variation (CV) ---
-
+# Coefficient of Variation (CV) function
 def calculate_cv(image_gpu):
     """
     Calculates the Coefficient of Variation (CV) for a given image on the GPU.
     CV = standard deviation / mean
-    
-    Args:
-        image_gpu (cupy.ndarray): Grayscale image (CuPy array) for which to calculate CV.
-                                   Expected to be float type.
-    
-    Returns:
-        float: The Coefficient of Variation value. Returns 0.0 if mean is zero to avoid division by zero.
     """
     mean_pixels = cp.mean(image_gpu)
     
@@ -62,7 +52,7 @@ def calculate_cv(image_gpu):
     
     return (std_pixels / mean_pixels).get() # .get() to move result to CPU
 
-# --- Main Program (Modified to include CV metric) ---
+# --- Main Program ---
 
 start_time = time.time()
 
@@ -73,13 +63,10 @@ try:
     if ref_image_raw is None or raw_image_raw is None:
         raise FileNotFoundError("Make sure 'dust_hologram_blank.tiff' and 'dust_hologram.tiff' exist in the specified path.")
 
-    # Convert images to complex floating point for calculations
-    # Transfer NumPy arrays to CuPy arrays on the GPU
-    # Ensure raw_image_raw is float before converting to complex
-    ref_image_gpu = cp.asarray(ref_image_raw.astype(cp.float64)) # Use float64 for better precision if required
+    # Convert images to complex floating point for calculations and transfer to GPU
+    ref_image_gpu = cp.asarray(ref_image_raw.astype(cp.float64))
     raw_image_gpu = cp.asarray(raw_image_raw.astype(cp.float64))
-
-    # For Fresnel, we need complex type:
+    
     ref_image_complex_gpu = ref_image_gpu.astype(cp.complex128)
     raw_image_complex_gpu = raw_image_gpu.astype(cp.complex128)
 
@@ -95,25 +82,24 @@ input_fov_y = original_size_y * pix
 print(f"Original Input Field of View: {input_fov_x:.2f} µm x {input_fov_y:.2f} µm")
 print(f"Original Pixel Size: {pix} µm")
 
-# 2. Perform calculations (corresponds to 'con' in Mathematica)
+# Perform initial calculation (con) on GPU
 con = raw_image_complex_gpu / (ref_image_complex_gpu**2)
 
-# --- Reconstruction Loop ---
-print("\n--- Performing Reconstruction with Varying zf (Normalized View) ---")
+# --- Reconstruction Loop for CV calculation ---
+print("\n--- Calculating Coefficient of Variation for Varying zf ---")
 
 # Store CV results for each zf value
 cv_results = []
 
-fig, axes = plt.subplots(1, len(zf_values), figsize=(4 * len(zf_values), 6))
-if len(zf_values) == 1: # Handle case of single subplot
-    axes = [axes]
-
 for i, current_zf in enumerate(zf_values):
-    print(f"Reconstructing for zf = {current_zf} µm...")
+    print(f"Processing zf = {current_zf} µm...")
+    
+    # Fresnel propagation on GPU
     reconstructed_field = fresnel(current_zf, lam, con)
     reconstructed_intensity = cp.abs(reconstructed_field)**2
     
-    # Bring the CuPy array back to the CPU for processing and plotting
+    # Transfer to CPU for cropping if CuPy cropping methods are not suitable or if
+    # the cropping logic relies on standard NumPy/OpenCV indexing after conversion.
     reconstructed_intensity_cpu = cp.asnumpy(reconstructed_intensity)
     
     # --- Dynamic Cropping Calculation ---
@@ -143,20 +129,10 @@ for i, current_zf in enumerate(zf_values):
 
     cropped_intensity_cpu = reconstructed_intensity_cpu[start_y:end_y, start_x:end_x]
     
-    final_display_image = cv2.resize(cropped_intensity_cpu, 
-                                     (original_size_x, original_size_y), 
-                                     interpolation=cv2.INTER_LINEAR)
-
-    # Normalize intensity for display consistency (0-1 range)
-    # The CV calculation works best on the actual intensity values, not normalized to 0-1 for display.
-    # We'll use the 'cropped_intensity_cpu' or its CuPy equivalent directly for CV calculation.
-    # It's important that the image for CV calculation is the raw intensity, not scaled to 0-255 or 0-1.
-    
     # Convert the cropped intensity back to CuPy for CV calculation
-    image_for_cv_gpu = cp.asarray(cropped_intensity_cpu, dtype=cp.float32) # Using float32 for CV calc
+    image_for_cv_gpu = cp.asarray(cropped_intensity_cpu, dtype=cp.float32)
 
     # --- Calculate Coefficient of Variation (CV) ---
-    
     cv_calc_start = time.time()
     current_cv = calculate_cv(image_for_cv_gpu)
     cv_calc_end = time.time()
@@ -165,25 +141,33 @@ for i, current_zf in enumerate(zf_values):
         'zf': current_zf,
         'CV': current_cv
     })
-    print(f"  CV (zf={current_zf}): {current_cv:.6f}")
-    print(f"  CV calculation time: {cv_calc_end - cv_calc_start:.6f} seconds.")
-
-    # Normalize final_display_image for display
-    display_image_normalized = (final_display_image - final_display_image.min()) / \
-                               (final_display_image.max() - final_display_image.min() + 1e-9)
-
-    ax = axes[i]
-    ax.imshow(display_image_normalized, cmap='gray')
-    ax.set_title(f'zf = {current_zf} µm\nCV: {current_cv:.4f}')
-    ax.axis('off')
+    print(f"  CV (zf={current_zf}): {current_cv:.6f} (Calculation time: {cv_calc_end - cv_calc_start:.6f} seconds)")
 
 comp_end_time = time.time()
-print(f"\nGPU Total computation time (including CV metric): {comp_end_time - start_time:.2f} seconds.")
-
-plt.suptitle("Reconstructed Images and Coefficient of Variation at Different zf values")
-plt.tight_layout(rect=[0, 0.03, 1, 0.9]) # Adjust layout to prevent title overlap
-plt.show()
+print(f"\nGPU Total computation time for all zf values: {comp_end_time - start_time:.2f} seconds.")
 
 print("\n--- Summary of Coefficient of Variation for each zf ---")
 for result in cv_results:
     print(f"zf={result['zf']} µm: CV={result['CV']:.6f}")
+
+# --- Plotting the CV values ---
+
+# Extract zf and CV values from the populated cv_results list
+zf_values_for_plot = [result['zf'] for result in cv_results]
+cv_values_for_plot = [result['CV'] for result in cv_results]
+
+# Create the plot
+plt.figure(figsize=(10, 6))
+plt.plot(zf_values_for_plot, cv_values_for_plot, marker='o', linestyle='-', color='blue')
+
+# Add labels and title
+plt.xlabel('Focus Distance (zf) in µm')
+plt.ylabel('Coefficient of Variation (CV)')
+plt.title('Coefficient of Variation vs. Focus Distance')
+plt.grid(True)
+
+# Save the plot (optional)
+plt.savefig('cv_vs_zf_plot.png')
+
+# Show the plot
+plt.show()
