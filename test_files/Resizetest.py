@@ -10,6 +10,7 @@ pix = 3.45   # measured in micrometers (pixel size)
 zf = 68900   # replace number with focus distance in micrometers
 zf_values = [10000, 40000, 50000, 60000, 67225, 68900, 70000, 800000, 90000] # Sorted for better progression
 
+
 # n = 1 # Not used in this version of fresnel, can remove or keep for reference
 
 # --- Function Definitions ---

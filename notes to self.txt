@@ -3,3 +3,7 @@ frsenel(pixel s
 autofucous
 display
 animation z values
+
+
+108.6
+91.83

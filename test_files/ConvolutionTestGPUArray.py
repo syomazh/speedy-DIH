@@ -8,7 +8,8 @@ import cupy as cp # Import CuPy
 lam = 0.532  # measured in micrometers (wavelength)
 pix = 3.45   # measured in micrometers (pixel size)
 zf = 68900   # replace number with focus distance in micrometers
-zf_values = [40000, 50000, 60000, 70000, 80000,90000,10000,67225,68900] # Example zf values
+zf_values = [] # Example zf values
+zf_values = list(range(62920, 72921, 1000))  # Continue the list in steps of 2000 up to 200000
 # zf_values = [60000,67225, 78225, ] # Example zf values
 
 
@@ -61,7 +62,7 @@ start_time = time.time()
 
 try:
     ref_image_raw = cv2.imread("/home/berg/Documents/git/speedy-DIH/test_files/dust_hologram_blank.tiff", cv2.IMREAD_GRAYSCALE)
-    raw_image_raw = cv2.imread("/home/berg/Documents/git/speedy-DIH/test_files/dust_hologram.tiff", cv2.IMREAD_GRAYSCALE)
+    raw_image_raw = cv2.imread("/home/berg/Documents/git/speedy-DIH/test_files/sphere2_hologram.tiff", cv2.IMREAD_GRAYSCALE)
 
     if ref_image_raw is None or raw_image_raw is None:
         raise FileNotFoundError("Make sure 'dust_hologram_blank.tiff' and 'dust_hologram.tiff' exist in the specified path.")
