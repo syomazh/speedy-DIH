@@ -38,7 +38,7 @@ def fresnel(z, lambda_val, image_array_gpu, pix):
 def calculate_cv(image_gpu):
     """
     Calculates the Coefficient of Variation (CV) for a given image on the GPU.
-    CV = standard deviation / mean
+    Matches Tamura calculation: CV = sqrt(standard deviation / mean)
     """
     mean_pixels = cp.mean(image_gpu)
     
@@ -47,7 +47,9 @@ def calculate_cv(image_gpu):
         
     std_pixels = cp.std(image_gpu)
     
-    return (std_pixels / mean_pixels).get() # .get() to move result to CPU
+    # Add square root to match the Tamura formula
+    return cp.sqrt(std_pixels / mean_pixels).get() # .get() to move result to CPU
+
 
 # --- Main Program ---
 def display_Tamura_graph(refImage_filepath , rawImage_filepath, zf_values, lam=0.532, pix=3.45):
