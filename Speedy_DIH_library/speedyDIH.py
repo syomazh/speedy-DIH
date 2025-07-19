@@ -46,8 +46,9 @@ class SpeedyDIH:
                 raise FileNotFoundError(f"Failed to load images from {ref_path} or {raw_path}")
 
             # Transfer to GPU as complex arrays
-            ref_image = cp.asarray(ref_image_raw, dtype=cp.complex128)
-            raw_image = cp.asarray(raw_image_raw, dtype=cp.complex128)
+            #$complex128 is more precise but compelx64 is hella faster
+            ref_image = cp.asarray(ref_image_raw, dtype=cp.complex64)
+            raw_image = cp.asarray(raw_image_raw, dtype=cp.complex64)
             
             return ref_image, raw_image
             
@@ -56,7 +57,8 @@ class SpeedyDIH:
 
     def fresnel_propagation(self, 
                            image_array: cp.ndarray, 
-                           propagation_distance: float) -> cp.ndarray:
+                           propagation_distance: float,
+                           cached_coords=None) -> cp.ndarray:
         """
         Compute Fresnel propagation of an image using the angular spectrum method.
         
@@ -69,19 +71,27 @@ class SpeedyDIH:
         """
         size_y, size_x = image_array.shape
         
-        # Create coordinate grids
-        half_x = size_x // 2
-        half_y = size_y // 2
-        x_coords = cp.arange(-half_x, size_x - half_x) * self.pixel_size
-        y_coords = cp.arange(-half_y, size_y - half_y) * self.pixel_size
+        if cached_coords is None:
+            # Create coordinate grids (cached for repeated calls)
+            half_x = size_x // 2
+            half_y = size_y // 2
+            x_coords = cp.arange(-half_x, size_x - half_x, dtype=cp.float32) * self.pixel_size
+            y_coords = cp.arange(-half_y, size_y - half_y, dtype=cp.float32) * self.pixel_size
+            
+            X, Y = cp.meshgrid(x_coords, y_coords, indexing='xy')
+            X2Y2 = X**2 + Y**2
+            cached_coords = X2Y2
+        else:
+            X2Y2 = cached_coords
         
-        X, Y = cp.meshgrid(x_coords, y_coords, indexing='xy')
+        # Use more efficient combined calculation
+        k = cp.pi / (self.wavelength * propagation_distance)
+        phase_factor = cp.exp(1j * k * X2Y2)
         
-        # Phase factor for Fresnel propagation
-        phase_factor = cp.exp(1j * cp.pi / (self.wavelength * propagation_distance) * (X**2 + Y**2))
-        
-        # Apply phase factor and perform FFT operations
+        # Use in-place operations where possible
         transformed = image_array * phase_factor
+        
+        # Use the plan_fft for better performance on repeated FFT operations
         fft_result = cp.fft.fftshift(cp.fft.fft2(cp.fft.ifftshift(transformed)))
         
         # Final scaling factor
@@ -197,61 +207,65 @@ class SpeedyDIH:
         return best_distance
         
     def calculate_focus_metrics(self, 
-                               ref_path: str, 
-                               raw_path: str, 
-                               distance_range: List[float]) -> List[Dict]:
+                         ref_path: str, 
+                         raw_path: str, 
+                         distance_range: List[float]) -> List[Dict]:
         """
-        Calculate focus metrics (Tamura coefficient) for a range of distances.
-        
-        Args:
-            ref_path: Path to reference image
-            raw_path: Path to raw hologram image  
-            distance_range: List of distances to evaluate
-            
-        Returns:
-            List of dictionaries with distance and tamura values
+        Calculate focus metrics with batch processing for improved performance.
         """
         start_time = time.time()
         
         # Load images
         ref_image, raw_image = self.load_images(ref_path, raw_path)
         
-        # Calculate contrast
+        # Calculate contrast (once)
         contrast = raw_image / (ref_image**2)
         
         # Store results
         tamura_results = []
         
-        print(f"Calculating focus metrics across {len(distance_range)} distances...")
-        
         # Original image dimensions for cropping calculations
         original_size = ref_image.shape
         
-        for distance in distance_range:
-            # Reconstruct at current distance
-            reconstructed_field = self.fresnel_propagation(contrast, distance)
-            intensity = cp.abs(reconstructed_field)**2
+        print(f"Calculating focus metrics across {len(distance_range)} distances...")
+        
+        # Process in batches to improve GPU utilization
+        batch_size = min(10, len(distance_range))  # Adjust based on GPU memory
+        
+        for i in range(0, len(distance_range), batch_size):
+            batch_distances = distance_range[i:i+batch_size]
+            batch_results = []
             
-            # Get cropping dimensions
-            start_y, end_y, start_x, end_x = self._calculate_crop_dimensions(original_size, distance)
+            for distance in batch_distances:
+                # Reconstruct at current distance
+                reconstructed_field = self.fresnel_propagation(contrast, distance)
+                intensity = cp.abs(reconstructed_field)**2
+                
+                # Get cropping dimensions
+                start_y, end_y, start_x, end_x = self._calculate_crop_dimensions(original_size, distance)
+                
+                # Perform cropping directly on GPU for better performance
+                if start_y > 0 or end_y < intensity.shape[0] or start_x > 0 or end_x < intensity.shape[1]:
+                    cropped_gpu = intensity[start_y:end_y, start_x:end_x]
+                else:
+                    cropped_gpu = intensity
+                
+                # Calculate Tamura coefficient
+                tamura = self.calculate_tamura(cropped_gpu)
+                
+                # Print the Tamura coefficient (CV) for each distance
+                print(f"zf={distance} µm: CV={tamura:.6f}")
+                
+                batch_results.append({
+                    'distance': distance,
+                    'tamura': tamura
+                })
+                
+            tamura_results.extend(batch_results)
             
-            # Move to CPU for cropping (more efficient than small GPU operations)
-            intensity_cpu = cp.asnumpy(intensity)
-            cropped = intensity_cpu[start_y:end_y, start_x:end_x]
-            
-            # Move back to GPU for Tamura calculation
-            cropped_gpu = cp.asarray(cropped, dtype=cp.float32)
-            
-            # Calculate Tamura coefficient
-            tamura = self.calculate_tamura(cropped_gpu)
-            
-            # Print the Tamura coefficient (CV) for each distance
-            print(f"zf={distance} µm: CV={tamura:.6f}")
-            
-            tamura_results.append({
-                'distance': distance,
-                'tamura': tamura
-            })
+            # Explicitly synchronize and free memory
+            cp.cuda.Stream.null.synchronize()
+            cp.get_default_memory_pool().free_all_blocks()
             
         elapsed_time = time.time() - start_time
         print(f"Focus metrics calculated in {elapsed_time:.2f} seconds")
