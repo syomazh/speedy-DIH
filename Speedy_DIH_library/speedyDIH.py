@@ -1,237 +1,377 @@
-#Speedy_DIH_library/speedyDIH.py
-#syoma zharkov
+"""
+Speedy Digital In-line Holography (DIH) Library
+Provides efficient GPU-accelerated functions for holographic reconstruction
+Author: Syoma Zharkov
+"""
 
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 import time
 import cupy as cp
+from typing import List, Dict, Tuple, Optional, Union
 
-# --- Function Definitions ---
 
-# Fresnel function
-def fresnel(z, lambda_val, image_array_gpu, pix):
-    """
-    Computes the Fresnel propagation of an image on the GPU using CuPy.
-    """
-    size_y, size_x = image_array_gpu.shape
-    
-    halfSize_x = size_x // 2
-    halfSize_y = size_y // 2
-
-    x_coords = cp.arange(-halfSize_x, size_x - halfSize_x) * pix
-    y_coords = cp.arange(-halfSize_y, size_y - halfSize_y) * pix
-    
-    X, Y = cp.meshgrid(x_coords, y_coords, indexing='xy')
-    
-    exp_term = cp.exp(1j * cp.pi / (lambda_val * z) * (X**2 + Y**2))
-    
-    transformed_image_gpu = image_array_gpu * exp_term
-    
-    fft_result_gpu = cp.fft.fftshift(cp.fft.fft2(cp.fft.ifftshift(transformed_image_gpu)))
-    
-    scale_factor = (1j / (lambda_val * z)) * cp.exp(1j * (2 * cp.pi / lambda_val) * z)
-    
-    return scale_factor * fft_result_gpu
-
-# Coefficient of Variation (CV) function
-def calculate_cv(image_gpu):
-    """
-    Calculates the Coefficient of Variation (CV) for a given image on the GPU.
-    Matches Tamura calculation: CV = sqrt(standard deviation / mean)
-    """
-    mean_pixels = cp.mean(image_gpu)
-    
-    if mean_pixels == 0:
-        return 0.0 # Avoid division by zero
+class SpeedyDIH:
+    def __init__(self, wavelength: float = 0.532, pixel_size: float = 3.45):
+        """
+        Initialize the SpeedyDIH object with optical parameters.
         
-    std_pixels = cp.std(image_gpu)
-    
-    # Add square root to match the Tamura formula
-    return cp.sqrt(std_pixels / mean_pixels).get() # .get() to move result to CPU
-
-
-# --- Main Program ---
-def display_Tamura_graph(refImage_filepath , rawImage_filepath, zf_values, lam=0.532, pix=3.45):
-    start_time = time.time()
-    # --- Parameters ---
-    #lam = 0.532  # measured in micrometers (wavelength)
-    #pix = 3.45   # measured in micrometers (pixel size)
-    # zf = 68900   # Not used directly as zf_values is iterated
-    
-
-    try:
-        ref_image_raw = cv2.imread(refImage_filepath, cv2.IMREAD_GRAYSCALE)
-        raw_image_raw = cv2.imread(rawImage_filepath, cv2.IMREAD_GRAYSCALE)
-
-        if ref_image_raw is None or raw_image_raw is None:
-            raise FileNotFoundError("Make sure 'dust_hologram_blank.tiff' and 'dust_hologram.tiff' exist in the specified path.")
-
-        # Convert images to complex floating point for calculations and transfer to GPU
-        ref_image_gpu = cp.asarray(ref_image_raw.astype(cp.float64))
-        raw_image_gpu = cp.asarray(raw_image_raw.astype(cp.float64))
+        Args:
+            wavelength: Light wavelength in micrometers (default: 0.532)
+            pixel_size: Camera pixel size in micrometers (default: 3.45)
+        """
+        self.wavelength = wavelength  # µm
+        self.pixel_size = pixel_size  # µm
         
-        ref_image_complex_gpu = ref_image_gpu.astype(cp.complex128)
-        raw_image_complex_gpu = raw_image_gpu.astype(cp.complex128)
-
-    except Exception as e:
-        print(f"Error loading images: {e}")
-        print("Please ensure image files are present and valid TIFF files at the specified path.")
-        exit()
-
-    # Get original image dimensions and calculate original input FOV
-    original_size_y, original_size_x = ref_image_raw.shape
-    input_fov_x = original_size_x * pix
-    input_fov_y = original_size_y * pix
-    print(f"Original Input Field of View: {input_fov_x:.2f} µm x {input_fov_y:.2f} µm")
-    print(f"Original Pixel Size: {pix} µm")
-
-    # Perform initial calculation (con) on GPU
-    con = raw_image_complex_gpu / (ref_image_complex_gpu**2)
-
-    # --- Reconstruction Loop for CV calculation ---
-    print("\n--- Calculating Coefficient of Variation for Varying zf ---")
-
-    # Store CV results for each zf value
-    cv_results = []
-
-    for i, current_zf in enumerate(zf_values):
-        print(f"Processing zf = {current_zf} µm...")
+    def load_images(self, ref_path: str, raw_path: str) -> Tuple[cp.ndarray, cp.ndarray]:
+        """
+        Load and prepare reference and raw hologram images for processing.
         
-        # Fresnel propagation on GPU
-        reconstructed_field = fresnel(current_zf, lam, con, pix)
-        reconstructed_intensity = cp.abs(reconstructed_field)**2
+        Args:
+            ref_path: Path to reference image file
+            raw_path: Path to raw hologram image file
+            
+        Returns:
+            Tuple of (reference_image, raw_image) as CuPy complex arrays
         
-        # Transfer to CPU for cropping if CuPy cropping methods are not suitable or if
-        # the cropping logic relies on standard NumPy/OpenCV indexing after conversion.
-        reconstructed_intensity_cpu = cp.asnumpy(reconstructed_intensity)
+        Raises:
+            FileNotFoundError: If images cannot be loaded
+        """
+        try:
+            ref_image_raw = cv2.imread(ref_path, cv2.IMREAD_GRAYSCALE)
+            raw_image_raw = cv2.imread(raw_path, cv2.IMREAD_GRAYSCALE)
+
+            if ref_image_raw is None or raw_image_raw is None:
+                raise FileNotFoundError(f"Failed to load images from {ref_path} or {raw_path}")
+
+            # Transfer to GPU as complex arrays
+            ref_image = cp.asarray(ref_image_raw, dtype=cp.complex128)
+            raw_image = cp.asarray(raw_image_raw, dtype=cp.complex128)
+            
+            return ref_image, raw_image
+            
+        except Exception as e:
+            raise FileNotFoundError(f"Error loading images: {e}")
+
+    def fresnel_propagation(self, 
+                           image_array: cp.ndarray, 
+                           propagation_distance: float) -> cp.ndarray:
+        """
+        Compute Fresnel propagation of an image using the angular spectrum method.
         
-        # --- Dynamic Cropping Calculation ---
-        effective_rec_pix_size_x = (lam * current_zf) / (original_size_x * pix)
-        effective_rec_pix_size_y = (lam * current_zf) / (original_size_y * pix)
-
-        target_pixels_x = round(input_fov_x / effective_rec_pix_size_x)
-        target_pixels_y = round(input_fov_y / effective_rec_pix_size_y)
-
-        target_pixels_x = min(original_size_x, int(target_pixels_x))
-        target_pixels_y = min(original_size_y, int(target_pixels_y))
+        Args:
+            image_array: Complex input image array on GPU
+            propagation_distance: Propagation distance in micrometers
+            
+        Returns:
+            Propagated complex field as CuPy array
+        """
+        size_y, size_x = image_array.shape
         
-        if target_pixels_x % 2 != 0: target_pixels_x -= 1
-        if target_pixels_y % 2 != 0: target_pixels_y -= 1
-
-        center_y, center_x = reconstructed_intensity_cpu.shape[0] // 2, reconstructed_intensity_cpu.shape[1] // 2
+        # Create coordinate grids
+        half_x = size_x // 2
+        half_y = size_y // 2
+        x_coords = cp.arange(-half_x, size_x - half_x) * self.pixel_size
+        y_coords = cp.arange(-half_y, size_y - half_y) * self.pixel_size
         
-        start_x = center_x - target_pixels_x // 2
-        end_x = center_x + target_pixels_x // 2
-        start_y = center_y - target_pixels_y // 2
-        end_y = center_y + target_pixels_y // 2
+        X, Y = cp.meshgrid(x_coords, y_coords, indexing='xy')
         
-        start_x = max(0, start_x)
-        start_y = max(0, start_y)
-        end_x = min(reconstructed_intensity_cpu.shape[1], end_x)
-        end_y = min(reconstructed_intensity_cpu.shape[0], end_y)
-
-        cropped_intensity_cpu = reconstructed_intensity_cpu[start_y:end_y, start_x:end_x]
+        # Phase factor for Fresnel propagation
+        phase_factor = cp.exp(1j * cp.pi / (self.wavelength * propagation_distance) * (X**2 + Y**2))
         
-        # Convert the cropped intensity back to CuPy for CV calculation
-        image_for_cv_gpu = cp.asarray(cropped_intensity_cpu, dtype=cp.float32)
-
-        # --- Calculate Coefficient of Variation (CV) ---
-        cv_calc_start = time.time()
-        current_cv = calculate_cv(image_for_cv_gpu)
-        cv_calc_end = time.time()
+        # Apply phase factor and perform FFT operations
+        transformed = image_array * phase_factor
+        fft_result = cp.fft.fftshift(cp.fft.fft2(cp.fft.ifftshift(transformed)))
         
-        cv_results.append({
-            'zf': current_zf,
-            'CV': current_cv
-        })
-        print(f"  CV (zf={current_zf}): {current_cv:.6f} (Calculation time: {cv_calc_end - cv_calc_start:.6f} seconds)")
-
-    comp_end_time = time.time()
-    print(f"\nGPU Total computation time for all zf values: {comp_end_time - start_time:.2f} seconds.")
-
-    print("\n--- Summary of Coefficient of Variation for each zf ---")
-    for result in cv_results:
-        print(f"zf={result['zf']} µm: CV={result['CV']:.6f}")
-
-    # --- Plotting the CV values ---
-
-    # Extract zf and CV values from the populated cv_results list
-    zf_values_for_plot = [result['zf'] for result in cv_results]
-    cv_values_for_plot = [result['CV'] for result in cv_results]
-
-    # Create the plot
-    plt.figure(figsize=(10, 6))
-    plt.plot(zf_values_for_plot, cv_values_for_plot, marker='o', linestyle='-', color='blue')
-
-    # Add labels and title
-    plt.xlabel('Focus Distance (zf) in µm')
-    plt.ylabel('Coefficient of Variation (CV)')
-    plt.title('Coefficient of Variation vs. Focus Distance')
-    plt.grid(True)
-
-    # Save the plot (optional)
-    plt.savefig('cv_vs_zf_plot.png')
-
-    # Show the plot
-    plt.show()
-
-def display_Holograms(refImage_filepath , rawImage_filepath, zf_values, lam=0.532, pix=3.45):
-
-    start_time = time.time()
-
-    try:
-        ref_image_raw = cv2.imread("/home/berg/Documents/git/speedy-DIH/test_files/dust_hologram_blank.tiff", cv2.IMREAD_GRAYSCALE)
-        raw_image_raw = cv2.imread("/home/berg/Documents/git/speedy-DIH/test_files/sphere2_hologram.tiff", cv2.IMREAD_GRAYSCALE)
-
-        if ref_image_raw is None or raw_image_raw is None:
-            raise FileNotFoundError("Make sure 'dust_hologram_blank.tiff' and 'dust_hologram.tiff' exist in the specified path.")
-
-        # Convert images to complex floating point for calculations
-        # Transfer NumPy arrays to CuPy arrays on the GPU
-        ref_image = cp.asarray(ref_image_raw.astype(cp.complex128))
-        raw_image = cp.asarray(raw_image_raw.astype(cp.complex128))
-
-    except Exception as e:
-        print(f"Error loading images: {e}")
-        print("Please ensure image files are present and valid TIFF files at the specified path.")
-        exit()
-
-    size_y, size_x = ref_image.shape # Corrected: cupy shape is (rows, cols)
-
-    # 2. Perform calculations (corresponds to 'con' in Mathematica)
-    # All these operations now happen on the GPU with CuPy arrays
-    con = raw_image / (ref_image**2)
-
-    # --- Physical Scaling Calculation ---
-    input_fov_x = size_x * pix
-    input_fov_y = size_y * pix
-    print(f"Input Field of View: {input_fov_x:.2f} µm x {input_fov_y:.2f} µm")
-    print(f"Original Pixel Size: {pix} µm")
-
-    # --- Reconstruction Loop (demonstrating the effect) ---
-    print("\n--- Performing Reconstruction with Varying zf ---")
-
-
-    fig, axes = plt.subplots(1, len(zf_values), figsize=(4 * len(zf_values), 6))
-    if len(zf_values) == 1: # Handle case of single subplot
-        axes = [axes]
-
-    for i, current_zf in enumerate(zf_values):
-        print(f"Reconstructing for zf = {current_zf} µm...")
-        # Call the angular spectrum fresnel
-        reconstructed_field = fresnel(current_zf, lam, con, pix)
-        reconstructed_intensity = cp.abs(reconstructed_field)**2
+        # Final scaling factor
+        scale = (1j / (self.wavelength * propagation_distance)) * cp.exp(1j * (2 * cp.pi / self.wavelength) * propagation_distance)
         
-        # To display with matplotlib, you need to bring the CuPy array back to the CPU
-        ax = axes[i]
-        ax.imshow(cp.asnumpy(reconstructed_intensity), cmap='gray')
-        ax.set_title(f'zf = {current_zf} µm')
-        ax.axis('off')
+        return scale * fft_result
 
-    comp_end_time = time.time()
-    print(f"GPU Total computation time: {comp_end_time - start_time:.2f} seconds.")
+    @staticmethod
+    def calculate_tamura(image: cp.ndarray) -> float:
+        """
+        Calculate Tamura coefficient (focus metric) for an image.
+        Tamura = sqrt(standard_deviation / mean)
+        
+        Args:
+            image: Input image as GPU array
+            
+        Returns:
+            Tamura coefficient as float (on CPU)
+        """
+        mean_val = cp.mean(image)
+        
+        if mean_val == 0:
+            return 0.0  # Avoid division by zero
+            
+        std_val = cp.std(image)
+        return float(cp.sqrt(std_val / mean_val).get())  # Convert to CPU
 
-    plt.suptitle("Reconstructed Images at Different zf values - Convolution method")
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjust layout to prevent title overlap
-    plt.show()
+    def _calculate_crop_dimensions(self, 
+                                  original_size: Tuple[int, int], 
+                                  propagation_distance: float) -> Tuple[int, int, int, int]:
+        """
+        Calculate cropping dimensions based on propagation physics.
+        
+        Args:
+            original_size: Original image dimensions (height, width)
+            propagation_distance: Propagation distance in micrometers
+            
+        Returns:
+            Tuple of (start_y, end_y, start_x, end_x) for cropping
+        """
+        original_height, original_width = original_size
+        
+        # Calculate effective reconstruction pixel sizes
+        effective_pix_x = (self.wavelength * propagation_distance) / (original_width * self.pixel_size)
+        effective_pix_y = (self.wavelength * propagation_distance) / (original_height * self.pixel_size)
+        
+        # Calculate target dimensions
+        input_fov_x = original_width * self.pixel_size
+        input_fov_y = original_height * self.pixel_size
+        
+        target_width = min(original_width, int(round(input_fov_x / effective_pix_x)))
+        target_height = min(original_height, int(round(input_fov_y / effective_pix_y)))
+        
+        # Ensure even dimensions
+        if target_width % 2 != 0:
+            target_width -= 1
+        if target_height % 2 != 0:
+            target_height -= 1
+        
+        # Calculate crop coordinates
+        center_y, center_x = original_height // 2, original_width // 2
+        
+        start_x = max(0, center_x - target_width // 2)
+        end_x = min(original_width, center_x + target_width // 2)
+        start_y = max(0, center_y - target_height // 2)
+        end_y = min(original_height, center_y + target_height // 2)
+        
+        return start_y, end_y, start_x, end_x
+
+    def reconstruct_at_distance(self, 
+                              ref_image: cp.ndarray, 
+                              raw_image: cp.ndarray, 
+                              distance: float) -> cp.ndarray:
+        """
+        Reconstruct hologram at a specific propagation distance.
+        
+        Args:
+            ref_image: Reference image as CuPy array
+            raw_image: Raw hologram image as CuPy array
+            distance: Propagation distance in micrometers
+            
+        Returns:
+            Intensity of reconstructed field as CuPy array
+        """
+        # Calculate contrast hologram
+        contrast = raw_image / (ref_image**2)
+        
+        # Propagate using Fresnel
+        reconstructed_field = self.fresnel_propagation(contrast, distance)
+        
+        # Return intensity
+        return cp.abs(reconstructed_field)**2
+
+    def find_focus(self, 
+                  ref_path: str, 
+                  raw_path: str, 
+                  distance_range: List[float]) -> float:
+        """
+        Find optimal focus distance using the Tamura coefficient.
+        
+        Args:
+            ref_path: Path to reference image
+            raw_path: Path to raw hologram image
+            distance_range: List of distances to evaluate
+            
+        Returns:
+            Optimal focus distance in micrometers
+        """
+        tamura_results = self.calculate_focus_metrics(ref_path, raw_path, distance_range)
+        
+        # Find distance with maximum Tamura value
+        best_distance = max(tamura_results, key=lambda x: x['tamura'])['distance']
+        return best_distance
+        
+    def calculate_focus_metrics(self, 
+                               ref_path: str, 
+                               raw_path: str, 
+                               distance_range: List[float]) -> List[Dict]:
+        """
+        Calculate focus metrics (Tamura coefficient) for a range of distances.
+        
+        Args:
+            ref_path: Path to reference image
+            raw_path: Path to raw hologram image  
+            distance_range: List of distances to evaluate
+            
+        Returns:
+            List of dictionaries with distance and tamura values
+        """
+        start_time = time.time()
+        
+        # Load images
+        ref_image, raw_image = self.load_images(ref_path, raw_path)
+        
+        # Calculate contrast
+        contrast = raw_image / (ref_image**2)
+        
+        # Store results
+        tamura_results = []
+        
+        print(f"Calculating focus metrics across {len(distance_range)} distances...")
+        
+        # Original image dimensions for cropping calculations
+        original_size = ref_image.shape
+        
+        for distance in distance_range:
+            # Reconstruct at current distance
+            reconstructed_field = self.fresnel_propagation(contrast, distance)
+            intensity = cp.abs(reconstructed_field)**2
+            
+            # Get cropping dimensions
+            start_y, end_y, start_x, end_x = self._calculate_crop_dimensions(original_size, distance)
+            
+            # Move to CPU for cropping (more efficient than small GPU operations)
+            intensity_cpu = cp.asnumpy(intensity)
+            cropped = intensity_cpu[start_y:end_y, start_x:end_x]
+            
+            # Move back to GPU for Tamura calculation
+            cropped_gpu = cp.asarray(cropped, dtype=cp.float32)
+            
+            # Calculate Tamura coefficient
+            tamura = self.calculate_tamura(cropped_gpu)
+            
+            # Print the Tamura coefficient (CV) for each distance
+            print(f"zf={distance} µm: CV={tamura:.6f}")
+            
+            tamura_results.append({
+                'distance': distance,
+                'tamura': tamura
+            })
+            
+        elapsed_time = time.time() - start_time
+        print(f"Focus metrics calculated in {elapsed_time:.2f} seconds")
+        
+        return tamura_results
+
+    def display_tamura_graph(self, 
+                           ref_path: str, 
+                           raw_path: str, 
+                           distance_range: List[float],
+                           save_path: Optional[str] = None) -> None:
+        """
+        Calculate and display a graph of Tamura coefficients vs distance.
+        
+        Args:
+            ref_path: Path to reference image
+            raw_path: Path to raw hologram image
+            distance_range: List of distances to evaluate
+            save_path: Optional path to save the graph
+        """
+        tamura_results = self.calculate_focus_metrics(ref_path, raw_path, distance_range)
+        
+        # Extract values for plotting
+        distances = [result['distance'] for result in tamura_results]
+        tamura_values = [result['tamura'] for result in tamura_results]
+        
+        # Find best focus distance
+        best_idx = tamura_values.index(max(tamura_values))
+        best_distance = distances[best_idx]
+        
+        # Create plot
+        plt.figure(figsize=(10, 6))
+        plt.plot(distances, tamura_values, marker='o', linestyle='-', color='blue')
+        plt.axvline(x=best_distance, color='red', linestyle='--', 
+                    label=f'Best focus: {best_distance:.2f} µm')
+        
+        # Add labels and formatting
+        plt.xlabel('Propagation Distance (µm)')
+        plt.ylabel('Tamura Coefficient')
+        plt.title('Focus Quality vs Propagation Distance')
+        plt.grid(True)
+        plt.legend()
+        
+        # Save if requested
+        if save_path:
+            plt.savefig(save_path)
+            print(f"Graph saved to {save_path}")
+            
+        plt.show()
+        
+        print(f"Best focus distance: {best_distance:.2f} µm with Tamura value: {max(tamura_values):.6f}")
+        
+    def display_reconstructions(self, 
+                              ref_path: str, 
+                              raw_path: str, 
+                              distance_range: List[float]) -> None:
+        """
+        Display reconstructed holograms at multiple propagation distances.
+        
+        Args:
+            ref_path: Path to reference image
+            raw_path: Path to raw hologram image
+            distance_range: List of distances to reconstruct
+        """
+        start_time = time.time()
+        
+        # Load images
+        ref_image, raw_image = self.load_images(ref_path, raw_path)
+        
+        # Calculate contrast
+        contrast = raw_image / (ref_image**2)
+        
+        # Calculate physical parameters
+        size_y, size_x = ref_image.shape
+        input_fov_x = size_x * self.pixel_size
+        input_fov_y = size_y * self.pixel_size
+        print(f"Input Field of View: {input_fov_x:.2f} µm x {input_fov_y:.2f} µm")
+        print(f"Pixel Size: {self.pixel_size} µm")
+
+        # Create figure for visualizations
+        fig, axes = plt.subplots(1, len(distance_range), figsize=(4 * len(distance_range), 6))
+        if len(distance_range) == 1:
+            axes = [axes]  # Handle single subplot case
+
+        # Process each distance
+        for i, distance in enumerate(distance_range):
+            print(f"Reconstructing at distance = {distance} µm...")
+            
+            # Reconstruct field and calculate intensity
+            reconstructed_field = self.fresnel_propagation(contrast, distance)
+            intensity = cp.abs(reconstructed_field)**2
+            
+            # Display (transferring to CPU for matplotlib)
+            ax = axes[i]
+            ax.imshow(cp.asnumpy(intensity), cmap='gray')
+            ax.set_title(f'z = {distance} µm')
+            ax.axis('off')
+
+        # Add title and adjust layout
+        plt.suptitle("Hologram Reconstructions at Different Propagation Distances")
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        
+        elapsed_time = time.time() - start_time
+        print(f"Total reconstruction time: {elapsed_time:.2f} seconds")
+        
+        plt.show()
+
+
+# Example usage functions
+def display_Holograms(refImage_filepath, rawImage_filepath, zf_values, lam=0.532, pix=3.45):
+    """Legacy function maintained for backwards compatibility"""
+    dih = SpeedyDIH(wavelength=lam, pixel_size=pix)
+    dih.display_reconstructions(refImage_filepath, rawImage_filepath, zf_values)
+
+def display_Tamura_graph(refImage_filepath, rawImage_filepath, zf_values, lam=0.532, pix=3.45):
+    """Legacy function maintained for backwards compatibility"""
+    dih = SpeedyDIH(wavelength=lam, pixel_size=pix)
+    dih.display_tamura_graph(refImage_filepath, rawImage_filepath, zf_values)
+
+def find_focus(refImage_filepath, rawImage_filepath, zf_values, lam=0.532, pix=3.45):
+    """Find optimal focus distance using the Tamura method"""
+    dih = SpeedyDIH(wavelength=lam, pixel_size=pix)
+    return dih.find_focus(refImage_filepath, rawImage_filepath, zf_values)

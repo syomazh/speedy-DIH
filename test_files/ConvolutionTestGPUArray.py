@@ -9,7 +9,7 @@ lam = 0.532  # measured in micrometers (wavelength)
 pix = 3.45   # measured in micrometers (pixel size)
 zf = 68900   # replace number with focus distance in micrometers
 zf_values = [] # Example zf values
-zf_values = list(range(30000, 90921, 10000))  # Continue the list in steps of 2000 up to 200000
+zf_values = list(range(30000, 90001, 5000))  # Continue the list in steps of 2000 up to 200000
 # zf_values = [60000,67225, 78225, ] # Example zf values
 
 
@@ -61,8 +61,8 @@ def fresnel(z, lambda_val, image_array_gpu):
 start_time = time.time()
 
 try:
-    ref_image_raw = cv2.imread("/home/berg/Documents/git/speedy-DIH/test_files/glass_raw4.tiff", cv2.IMREAD_GRAYSCALE)
-    raw_image_raw = cv2.imread("/home/berg/Documents/git/speedy-DIH/test_files/glass_ref4.tiff", cv2.IMREAD_GRAYSCALE)
+    ref_image_raw = cv2.imread("/home/berg/Documents/git/speedy-DIH/test_files/dust_hologram_blank.tiff", cv2.IMREAD_GRAYSCALE)
+    raw_image_raw = cv2.imread("/home/berg/Documents/git/speedy-DIH/test_files/dust_hologram.tiff", cv2.IMREAD_GRAYSCALE)
 
     if ref_image_raw is None or raw_image_raw is None:
         raise FileNotFoundError("Make sure 'dust_hologram_blank.tiff' and 'dust_hologram.tiff' exist in the specified path.")
