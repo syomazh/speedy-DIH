@@ -24,14 +24,16 @@ class SpeedyDIH:
         self.wavelength = wavelength  # µm
         self.pixel_size = pixel_size  # µm
         
-    def load_images(self, ref_path: str, raw_path: str) -> Tuple[cp.ndarray, cp.ndarray]:
+    def load_images(self, ref_path: str, raw_path: str, use_high_precision: bool = False) -> Tuple[cp.ndarray, cp.ndarray]:
         """
         Load and prepare reference and raw hologram images for processing.
         
         Args:
             ref_path: Path to reference image file
             raw_path: Path to raw hologram image file
-            
+            use_high_precision: If True, use complex128 for higher precision (slower),
+                               if False, use complex64 for faster computation (default)
+                
         Returns:
             Tuple of (reference_image, raw_image) as CuPy complex arrays
         
@@ -45,10 +47,12 @@ class SpeedyDIH:
             if ref_image_raw is None or raw_image_raw is None:
                 raise FileNotFoundError(f"Failed to load images from {ref_path} or {raw_path}")
 
+            # Choose dtype based on precision parameter
+            dtype = cp.complex128 if use_high_precision else cp.complex64
+            
             # Transfer to GPU as complex arrays
-            #$complex128 is more precise but compelx64 is hella faster
-            ref_image = cp.asarray(ref_image_raw, dtype=cp.complex64)
-            raw_image = cp.asarray(raw_image_raw, dtype=cp.complex64)
+            ref_image = cp.asarray(ref_image_raw, dtype=dtype)
+            raw_image = cp.asarray(raw_image_raw, dtype=dtype)
             
             return ref_image, raw_image
             
@@ -209,9 +213,19 @@ class SpeedyDIH:
     def calculate_focus_metrics(self, 
                          ref_path: str, 
                          raw_path: str, 
-                         distance_range: List[float]) -> List[Dict]:
+                         distance_range: List[float],
+                         use_high_precision: bool = False) -> List[Dict]:
         """
-        Calculate focus metrics with batch processing for improved performance.
+        Calculate focus metrics with batch processing and coordinate caching for improved performance.
+        
+        Args:
+            ref_path: Path to reference image
+            raw_path: Path to raw hologram image  
+            distance_range: List of distances to evaluate
+            use_high_precision: If True, use complex128 instead of complex64 (slower but more precise)
+                
+        Returns:
+            List of dictionaries with distance and tamura values
         """
         start_time = time.time()
         
@@ -229,6 +243,16 @@ class SpeedyDIH:
         
         print(f"Calculating focus metrics across {len(distance_range)} distances...")
         
+        # Pre-compute coordinate grid once (this is the key caching step)
+        size_y, size_x = contrast.shape
+        half_x = size_x // 2
+        half_y = size_y // 2
+        x_coords = cp.arange(-half_x, size_x - half_x, dtype=cp.float32) * self.pixel_size
+        y_coords = cp.arange(-half_y, size_y - half_y, dtype=cp.float32) * self.pixel_size
+        
+        X, Y = cp.meshgrid(x_coords, y_coords, indexing='xy')
+        cached_coords = X**2 + Y**2
+        
         # Process in batches to improve GPU utilization
         batch_size = min(10, len(distance_range))  # Adjust based on GPU memory
         
@@ -237,8 +261,8 @@ class SpeedyDIH:
             batch_results = []
             
             for distance in batch_distances:
-                # Reconstruct at current distance
-                reconstructed_field = self.fresnel_propagation(contrast, distance)
+                # Reconstruct at current distance - pass cached coordinates
+                reconstructed_field = self.fresnel_propagation(contrast, distance, cached_coords)
                 intensity = cp.abs(reconstructed_field)**2
                 
                 # Get cropping dimensions
@@ -319,16 +343,18 @@ class SpeedyDIH:
         print(f"Best focus distance: {best_distance:.2f} µm with Tamura value: {max(tamura_values):.6f}")
         
     def display_reconstructions(self, 
-                              ref_path: str, 
-                              raw_path: str, 
-                              distance_range: List[float]) -> None:
+                          ref_path: str, 
+                          raw_path: str, 
+                          distance_range: List[float],
+                          use_high_precision: bool = False) -> None:
         """
-        Display reconstructed holograms at multiple propagation distances.
+        Display reconstructed holograms at multiple propagation distances with coordinate caching.
         
         Args:
             ref_path: Path to reference image
             raw_path: Path to raw hologram image
             distance_range: List of distances to reconstruct
+            use_high_precision: If True, use complex128 instead of complex64 (slower but more precise)
         """
         start_time = time.time()
         
@@ -338,8 +364,17 @@ class SpeedyDIH:
         # Calculate contrast
         contrast = raw_image / (ref_image**2)
         
+        # Pre-compute coordinate grid once (this is the key caching step)
+        size_y, size_x = contrast.shape
+        half_x = size_x // 2
+        half_y = size_y // 2
+        x_coords = cp.arange(-half_x, size_x - half_x, dtype=cp.float32) * self.pixel_size
+        y_coords = cp.arange(-half_y, size_y - half_y, dtype=cp.float32) * self.pixel_size
+        
+        X, Y = cp.meshgrid(x_coords, y_coords, indexing='xy')
+        cached_coords = X**2 + Y**2
+        
         # Calculate physical parameters
-        size_y, size_x = ref_image.shape
         input_fov_x = size_x * self.pixel_size
         input_fov_y = size_y * self.pixel_size
         print(f"Input Field of View: {input_fov_x:.2f} µm x {input_fov_y:.2f} µm")
@@ -354,8 +389,8 @@ class SpeedyDIH:
         for i, distance in enumerate(distance_range):
             print(f"Reconstructing at distance = {distance} µm...")
             
-            # Reconstruct field and calculate intensity
-            reconstructed_field = self.fresnel_propagation(contrast, distance)
+            # Reconstruct field and calculate intensity - pass cached coordinates
+            reconstructed_field = self.fresnel_propagation(contrast, distance, cached_coords)
             intensity = cp.abs(reconstructed_field)**2
             
             # Display (transferring to CPU for matplotlib)
