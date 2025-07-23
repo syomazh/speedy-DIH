@@ -278,7 +278,7 @@ class SpeedyDIH:
                 tamura = self.calculate_tamura(cropped_gpu)
                 
                 # Print the Tamura coefficient (CV) for each distance
-                print(f"zf={distance} µm: CV={tamura:.6f}")
+                #print(f"zf={distance} µm: CV={tamura:.6f}")
                 
                 batch_results.append({
                     'distance': distance,
@@ -336,7 +336,7 @@ class SpeedyDIH:
         # Save if requested
         if save_path:
             plt.savefig(save_path)
-            print(f"Graph saved to {save_path}")
+            #print(f"Graph saved to {save_path}")
             
         plt.show()
         
@@ -387,7 +387,7 @@ class SpeedyDIH:
 
         # Process each distance
         for i, distance in enumerate(distance_range):
-            print(f"Reconstructing at distance = {distance} µm...")
+            #print(f"Reconstructing at distance = {distance} µm...")
             
             # Reconstruct field and calculate intensity - pass cached coordinates
             reconstructed_field = self.fresnel_propagation(contrast, distance, cached_coords)
