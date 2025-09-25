@@ -231,8 +231,7 @@ class SpeedyDIH:
         Returns:
             Optimal focus distance in micrometers
         """
-        print(f"Phase 1: Initial coarse search with {n_points} points across [{min_distance}, {max_distance}] µm")
-        
+
         # Phase 1: Initial coarse search
         step = (max_distance - min_distance) / (n_points - 1)
         coarse_distances = [min_distance + step * i for i in range(n_points)]
@@ -245,7 +244,6 @@ class SpeedyDIH:
         best_distance = coarse_results[best_idx]['distance']
         best_tamura = coarse_results[best_idx]['tamura']
         
-        print(f"Phase 1 best: {best_distance} µm with Tamura: {best_tamura:.6f}")
         
         # Determine the neighboring interval [x_{k-1}, x_{k+1}]
         lower_idx = max(0, best_idx - 1)
@@ -255,7 +253,6 @@ class SpeedyDIH:
         refined_max = coarse_distances[upper_idx]
         
         # Phase 2: Refined local search
-        print(f"Phase 2: Refined search with {n_points} points across [{refined_min}, {refined_max}] µm")
         refined_step = (refined_max - refined_min) / (n_points - 1)
         refined_distances = [refined_min + refined_step * j for j in range(n_points)]
         
@@ -267,7 +264,6 @@ class SpeedyDIH:
         best_refined_distance = refined_results[best_refined_idx]['distance']
         best_refined_tamura = refined_results[best_refined_idx]['tamura']
         
-        print(f"Phase 2 best: {best_refined_distance} µm with Tamura: {best_refined_tamura:.6f}")
         
         return best_refined_distance
         
