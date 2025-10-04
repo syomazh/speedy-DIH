@@ -15,6 +15,7 @@
 #include "stdafx.h"
 #include "ArenaApi.h"
 #include "SaveApi.h"
+#include <fstream>
 
 #define TAB1 "  "
 
@@ -30,8 +31,32 @@
 // pixel format
 #define PIXEL_FORMAT BGR8
 
-// file name
-#define FILE_NAME "Images/Cpp_Save/image.tiff"
+// file name base (will be appended with image number)
+#define FILE_NAME_BASE "Images/Cpp_Save/image"
+#define COUNTER_FILE "image_counter.txt"
+
+// Function to get next image number
+int GetNextImageNumber()
+{
+    std::ifstream inFile(COUNTER_FILE);
+    int counter = 1;
+    
+    if (inFile.is_open())
+    {
+        inFile >> counter;
+        inFile.close();
+    }
+    
+    // Write incremented counter back to file
+    std::ofstream outFile(COUNTER_FILE);
+    if (outFile.is_open())
+    {
+        outFile << (counter + 1);
+        outFile.close();
+    }
+    
+    return counter;
+}
 
 // =-=-=-=-=-=-=-=-=-
 // =-=- EXAMPLE -=-=-
@@ -46,45 +71,45 @@
 // (6) destroys converted image
 void SaveImage(Arena::IImage* pImage, const char* filename)
 {
-	// convert image
-	std::cout << TAB1 << "Convert image to " << GetPixelFormatName(PIXEL_FORMAT) << "\n";
+    // convert image
+    std::cout << TAB1 << "Convert image to " << GetPixelFormatName(PIXEL_FORMAT) << "\n";
 
-	auto pConverted = Arena::ImageFactory::Convert(
-		pImage,
-		PIXEL_FORMAT);
+    auto pConverted = Arena::ImageFactory::Convert(
+        pImage,
+        PIXEL_FORMAT);
 
-	// prepare image parameters
-	std::cout << TAB1 << "Prepare image parameters\n";
+    // prepare image parameters
+    std::cout << TAB1 << "Prepare image parameters\n";
 
-	Save::ImageParams params(
-		pConverted->GetWidth(),
-		pConverted->GetHeight(),
-		pConverted->GetBitsPerPixel());
+    Save::ImageParams params(
+        pConverted->GetWidth(),
+        pConverted->GetHeight(),
+        pConverted->GetBitsPerPixel());
 
-	// prepare image writer
-	std::cout << TAB1 << "Prepare image writer\n";
+    // prepare image writer
+    std::cout << TAB1 << "Prepare image writer\n";
 
-	Save::ImageWriter writer(
-		params,
-		filename);
+    Save::ImageWriter writer(
+        params,
+        filename);
 
-	// Set image writer to TIFF
-	//   Set the output file format of the image writer to TIFF.
-	//   The writer saves the image file as TIFF file even without
-	//	 the extension in the file name. Aside from this setting,
-	//   compression can be set several different compression algorithms, 
-	//   and store tags for separated CMYK by changing the parameters.
-	std::cout << TAB1 << "Set image writer to TIFF\n";
+    // Set image writer to TIFF
+    //   Set the output file format of the image writer to TIFF.
+    //   The writer saves the image file as TIFF file even without
+    //	 the extension in the file name. Aside from this setting,
+    //   compression can be set several different compression algorithms, 
+    //   and store tags for separated CMYK by changing the parameters.
+    std::cout << TAB1 << "Set image writer to TIFF\n";
 
-	writer.SetTiff(".tiff", Save::NoCompression, false);
-			
-	// saves image
-	std::cout << TAB1 << "Save image\n";
+    writer.SetTiff(".tiff", Save::NoCompression, false);
+            
+    // saves image
+    std::cout << TAB1 << "Save image: " << filename << "\n";
 
-	writer << pConverted->GetData();
-	
-	// destroy converted image
-	Arena::ImageFactory::Destroy(pConverted);
+    writer << pConverted->GetData();
+    
+    // destroy converted image
+    Arena::ImageFactory::Destroy(pConverted);
 }
 
 // =-=-=-=-=-=-=-=-=-
@@ -160,14 +185,27 @@ int main()
 		Arena::SetNodeValue<bool>(pDevice->GetTLStreamNodeMap(), "StreamPacketResendEnable", true);
 
 		pDevice->StartStream();
-		Arena::IImage* pImage = pDevice->GetImage(2000);
 
 		std::cout << "Commence example\n\n";
-		SaveImage(pImage, FILE_NAME);
-		std::cout << "\nExample complete\n";
+        
+        // Get next image number
+        int imageNumber = GetNextImageNumber();
+        
+        std::cout << "Capturing image " << imageNumber << "\n";
+        
+        Arena::IImage* pImage = pDevice->GetImage(2000);
+        
+        // Create filename with image number
+        std::string filename = std::string(FILE_NAME_BASE) + "_" + std::to_string(imageNumber) + ".tiff";
+        
+        SaveImage(pImage, filename.c_str());
+        
+        // clean up current image
+        pDevice->RequeueBuffer(pImage);
+        
+        std::cout << "\nExample complete - image " << imageNumber << " saved as " << filename << "\n";
 
 		// clean up example
-		pDevice->RequeueBuffer(pImage);
 		pDevice->StopStream();
 		pSystem->DestroyDevice(pDevice);
 		Arena::CloseSystem(pSystem);
@@ -187,10 +225,6 @@ int main()
 		std::cout << "\nUnexpected exception thrown\n";
 		exceptionThrown = true;
 	}
-
-	std::cout << "Press enter to complete\n";
-	std::cin.ignore();
-	std::getchar();
 
 	if (exceptionThrown)
 		return -1;

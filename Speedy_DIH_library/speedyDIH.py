@@ -465,12 +465,86 @@ class SpeedyDIH:
         
         plt.show()
 
+    def display_reconstructions_1second(self, 
+                                      ref_path: str, 
+                                      raw_path: str, 
+                                      distance_range: List[float],
+                                      use_high_precision: bool = False) -> None:
+        """
+        Display reconstructed holograms at multiple propagation distances for 1 second with coordinate caching.
+        
+        Args:
+            ref_path: Path to reference image
+            raw_path: Path to raw hologram image
+            distance_range: List of distances to reconstruct
+            use_high_precision: If True, use complex128 instead of complex64 (slower but more precise)
+        """
+        start_time = time.time()
+        
+        # Load images
+        ref_image, raw_image = self.load_images(ref_path, raw_path)
+        
+        # Calculate contrast
+        contrast = raw_image / (ref_image**2)
+        
+        # Pre-compute coordinate grid once (this is the key caching step)
+        size_y, size_x = contrast.shape
+        half_x = size_x // 2
+        half_y = size_y // 2
+        x_coords = cp.arange(-half_x, size_x - half_x, dtype=cp.float32) * self.pixel_size
+        y_coords = cp.arange(-half_y, size_y - half_y, dtype=cp.float32) * self.pixel_size
+        
+        X, Y = cp.meshgrid(x_coords, y_coords, indexing='xy')
+        cached_coords = X**2 + Y**2
+        
+        # Calculate physical parameters
+        input_fov_x = size_x * self.pixel_size
+        input_fov_y = size_y * self.pixel_size
+        print(f"Input Field of View: {input_fov_x:.2f} µm x {input_fov_y:.2f} µm")
+        print(f"Pixel Size: {self.pixel_size} µm")
+
+        # Create figure for visualizations
+        fig, axes = plt.subplots(1, len(distance_range), figsize=(4 * len(distance_range), 6))
+        if len(distance_range) == 1:
+            axes = [axes]  # Handle single subplot case
+
+        # Process each distance
+        for i, distance in enumerate(distance_range):
+            # Reconstruct field and calculate intensity - pass cached coordinates
+            reconstructed_field = self.fresnel_propagation(contrast, distance, cached_coords)
+            intensity = cp.abs(reconstructed_field)**2
+            
+            # Display (transferring to CPU for matplotlib)
+            ax = axes[i]
+            ax.imshow(cp.asnumpy(intensity), cmap='gray')
+            ax.set_title(f'z = {distance} µm')
+            ax.axis('off')
+
+        # Add title and adjust layout
+        plt.suptitle("Hologram Reconstructions at Different Propagation Distances")
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        
+        elapsed_time = time.time() - start_time
+        print(f"Total reconstruction time: {elapsed_time:.2f} seconds")
+        
+        # Show and hold for exactly 1 second
+        plt.ion()  # Turn on interactive mode
+        plt.show()
+        plt.pause(1)
+        plt.ioff()  # Turn off interactive mode
+        plt.close(fig)
+
 
 # Example usage functions
 def display_Holograms(refImage_filepath, rawImage_filepath, zf_values, lam=0.532, pix=3.45):
     """Legacy function maintained for backwards compatibility"""
     dih = SpeedyDIH(wavelength=lam, pixel_size=pix)
     dih.display_reconstructions(refImage_filepath, rawImage_filepath, zf_values)
+
+def display_Holograms_1second(refImage_filepath, rawImage_filepath, zf_values, lam=0.532, pix=3.45):
+    """Legacy function maintained for backwards compatibility"""
+    dih = SpeedyDIH(wavelength=lam, pixel_size=pix)
+    dih.display_reconstructions_1second(refImage_filepath, rawImage_filepath, zf_values)
 
 def display_Tamura_graph(refImage_filepath, rawImage_filepath, zf_values, lam=0.532, pix=3.45):
     """Legacy function maintained for backwards compatibility"""
