@@ -59,10 +59,9 @@ int GetNextImageNumber()
 }
 
 // =-=-=-=-=-=-=-=-=-
-// =-=- EXAMPLE -=-=-
+// =-=- saving da image-=-=-
 // =-=-=-=-=-=-=-=-=-
 
-// demonstrates saving an image
 // (1) converts image to a displayable pixel format
 // (2) prepares image parameters
 // (3) prepares image writer

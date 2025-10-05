@@ -269,32 +269,38 @@ class HologramVisualizer:
         self.processor = processor
     
     def display_reconstructions(self, 
-                              ref_image: cp.ndarray,
-                              raw_image: cp.ndarray,
-                              distance_range: List[float],
-                              show_duration: Optional[float] = None) -> None:
-        """Display reconstructed holograms at multiple distances."""
+                          data_images: List[cp.ndarray],
+                          distance_range: List[float],
+                          pixel_size: Optional[float] = None,
+                          show_duration: Optional[float] = None) -> None:
+        """Display pre-computed hologram reconstructions at multiple distances."""
         start_time = time.time()
         
-        contrast = raw_image / (ref_image**2)
-        cached_coords = self.processor.coord_cache.get_coordinates(contrast.shape)
+        if len(data_images) != len(distance_range):
+            raise ValueError(f"Number of data images ({len(data_images)}) must match number of distances ({len(distance_range)})")
         
-        # Calculate physical parameters
-        size_y, size_x = contrast.shape
-        input_fov_x = size_x * self.processor.pixel_size
-        input_fov_y = size_y * self.processor.pixel_size
-        print(f"Input Field of View: {input_fov_x:.2f} µm x {input_fov_y:.2f} µm")
-        print(f"Pixel Size: {self.processor.pixel_size} µm")
+        # Use provided pixel_size or fall back to processor's pixel_size
+        pix_size = pixel_size if pixel_size is not None else self.processor.pixel_size
+        
+        # Calculate physical parameters from first image
+        size_y, size_x = data_images[0].shape
+        input_fov_x = size_x * pix_size
+        input_fov_y = size_y * pix_size
+        print(f"Display Field of View: {input_fov_x:.2f} µm x {input_fov_y:.2f} µm")
+        print(f"Pixel Size: {pix_size} µm")
 
         # Create figure
         fig, axes = plt.subplots(1, len(distance_range), figsize=(4 * len(distance_range), 6))
         if len(distance_range) == 1:
             axes = [axes]
 
-        # Process each distance
-        for i, distance in enumerate(distance_range):
-            reconstructed_field = self.processor.fresnel_propagation(contrast, distance, cached_coords)
-            intensity = cp.abs(reconstructed_field)**2
+        # Display each pre-computed image
+        for i, (data_image, distance) in enumerate(zip(data_images, distance_range)):
+            # Handle both intensity and complex field data
+            if cp.iscomplexobj(data_image):
+                intensity = cp.abs(data_image)**2
+            else:
+                intensity = data_image
             
             ax = axes[i]
             ax.imshow(cp.asnumpy(intensity), cmap='gray')
@@ -305,7 +311,7 @@ class HologramVisualizer:
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
         
         elapsed_time = time.time() - start_time
-        print(f"Total reconstruction time: {elapsed_time:.2f} seconds")
+        print(f"Total display time: {elapsed_time:.2f} seconds")
         
         if show_duration is not None:
             plt.ion()
@@ -391,13 +397,31 @@ class SpeedyDIH:
                               use_high_precision: bool = False) -> None:
         """Display reconstructed holograms."""
         ref_image, raw_image = self.load_images(ref_path, raw_path, use_high_precision)
-        self.visualizer.display_reconstructions(ref_image, raw_image, distance_range)
+        contrast = raw_image / (ref_image**2)
+        cached_coords = self.processor.coord_cache.get_coordinates(contrast.shape)
+        
+        # Pre-compute all reconstructions
+        data_images = []
+        for distance in distance_range:
+            reconstructed_field = self.processor.fresnel_propagation(contrast, distance, cached_coords)
+            data_images.append(reconstructed_field)
+        
+        self.visualizer.display_reconstructions(data_images, distance_range)
     
     def display_reconstructions_1second(self, ref_path: str, raw_path: str, distance_range: List[float], 
                                       use_high_precision: bool = False) -> None:
         """Display reconstructed holograms for 1 second."""
         ref_image, raw_image = self.load_images(ref_path, raw_path, use_high_precision)
-        self.visualizer.display_reconstructions(ref_image, raw_image, distance_range, show_duration=1.0)
+        contrast = raw_image / (ref_image**2)
+        cached_coords = self.processor.coord_cache.get_coordinates(contrast.shape)
+        
+        # Pre-compute all reconstructions
+        data_images = []
+        for distance in distance_range:
+            reconstructed_field = self.processor.fresnel_propagation(contrast, distance, cached_coords)
+            data_images.append(reconstructed_field)
+        
+        self.visualizer.display_reconstructions(data_images, distance_range, show_duration=1.0)
     
     def display_tamura_graph(self, ref_path: str, raw_path: str, distance_range: List[float], 
                            save_path: Optional[str] = None) -> None:
