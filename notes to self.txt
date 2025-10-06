@@ -1,9 +1,40 @@
+using old method
 
-frsenel(pixel s
-autofucous
-display
-animation z values
+Finding focus using hierarchical search...
+Image loading completed:
+  File I/O time: 0.158 seconds
+  GPU transfer time: 0.220 seconds
+  Total loading time: 0.378 seconds
+  Image dimensions: (3036, 4024)
+  Precision: Standard (complex64)
+
+Optimal focus distance (hierarchical): 30000.0 μm
+Time taken: 4.2240 seconds
 
 
-108.6
-91.83
+using tifffile
+
+Finding focus using hierarchical search...
+Image loading completed:
+  File I/O time: 0.028 seconds
+  GPU transfer time: 0.176 seconds
+  Total loading time: 0.795 seconds
+  Image dimensions: (3036, 4024)
+  Precision: Standard (complex64)
+
+Optimal focus distance (hierarchical): 30000.0 μm
+Time taken: 4.1364 seconds
+
+
+using tifile but fixed
+
+(.venv) berg@berg-desktop:~/Documents/git/speedy-DIH$ /home/berg/Documents/git/speedy-DIH/.venv/bin/python /home/berg/Documents/git/speedy-DIH/Speedy_DIH_library/test2.py
+Finding focus using hierarchical search...
+Image loading completed:
+  File I/O time: 0.031 seconds
+  GPU transfer time: 0.193 seconds
+  Total loading time: 0.223 seconds
+  Image dimensions: (3036, 4024)
+  Precision: Standard (complex64)
+Optimal focus distance (hierarchical): 30000.0 μm
+Time taken: 3.4575 seconds
