@@ -2,10 +2,11 @@ import numpy as np
 from speedyDIH import SpeedyDIH
 import time
 
-down_sample_factor = 1  # Change this factor to test different downsampling levels
+down_sample_factor =2
+# Change this factor to test different downsampling levels
 # Initialize the holography processor with your optical parameters
-wavelength = 0.532/down_sample_factor  # Green laser wavelength in micrometers
-pixel_size = 3.45/down_sample_factor   # Camera pixel size in micrometers
+wavelength = 0.532  # Green laser wavelength in micrometers
+pixel_size = 3.45 * down_sample_factor*down_sample_factor   # Camera pixel size in micrometers
 
 dih = SpeedyDIH(wavelength=wavelength, pixel_size=pixel_size)
 
@@ -17,7 +18,7 @@ ref_image_path = "/home/berg/Documents/git/speedy-DIH/test_files/dust_hologram_b
 raw_image_path = "/home/berg/Documents/git/speedy-DIH/test_files/dust_hologram.tiff"
 
 # Define propagation distances to test (in micrometers)
-z_distances = np.arange(100, 140001, 1000)  # From 0 to 30 mm in steps of 1 mm
+z_distances = np.arange(34000, 140001*down_sample_factor, 1000*down_sample_factor)  # From 34 mm to 140 mm in steps of 1 mm
 
 # # 1. Display reconstructions at different distances with downsampling
 # print("Displaying hologram reconstructions (with 2x downsampling for speed)...")

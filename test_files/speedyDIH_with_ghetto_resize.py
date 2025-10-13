@@ -15,7 +15,89 @@ from abc import ABC, abstractmethod
 
 class ImageLoader:
     """Handles image loading and preprocessing operations."""
-   
+    
+    @staticmethod
+    def load_image_pair(ref_path: str, raw_path: str, use_high_precision: bool = False, 
+                       downsample_factor: int = 1) -> Tuple[cp.ndarray, cp.ndarray]:
+        """
+        Load and prepare reference and raw hologram images for processing.
+        
+        Args:
+            ref_path: Path to reference image
+            raw_path: Path to raw hologram image
+            use_high_precision: Use complex128 instead of complex64
+            downsample_factor: Factor to downsample images (1=no downsampling, 2=half resolution, etc.)
+        
+        Returns:
+            Tuple of (ref_image, raw_image) as CuPy arrays
+        """
+        start_time = time.time()
+        
+        try:
+            # Time the file loading
+            load_start = time.time()
+            
+            # Use tifffile for .tif/.tiff files, otherwise use OpenCV
+            if ref_path.lower().endswith(('.tif', '.tiff')):
+                ref_image_raw = tifffile.imread(ref_path)
+                raw_image_raw = tifffile.imread(raw_path)
+                
+                # Handle color images efficiently
+                if ref_image_raw.ndim == 3:
+                    ref_image_raw = ref_image_raw[:, :, 0]  # Take first channel
+                if raw_image_raw.ndim == 3:
+                    raw_image_raw = raw_image_raw[:, :, 0]  # Take first channel
+            else:
+                # OpenCV automatically loads as grayscale
+                ref_image_raw = cv2.imread(ref_path, cv2.IMREAD_GRAYSCALE)
+                raw_image_raw = cv2.imread(raw_path, cv2.IMREAD_GRAYSCALE)
+            
+            load_time = time.time() - load_start
+
+            if ref_image_raw is None or raw_image_raw is None:
+                raise FileNotFoundError(f"Failed to load images from {ref_path} or {raw_path}")
+
+            # Downsample images if requested
+            if downsample_factor > 1:
+                downsample_start = time.time()
+                original_shape = ref_image_raw.shape
+                
+                # Use cv2.resize with INTER_AREA for best quality downsampling
+                new_width = ref_image_raw.shape[1] // downsample_factor
+                new_height = ref_image_raw.shape[0] // downsample_factor
+                
+                ref_image_raw = cv2.resize(ref_image_raw, (new_width, new_height), 
+                                          interpolation=cv2.INTER_AREA)
+                raw_image_raw = cv2.resize(raw_image_raw, (new_width, new_height), 
+                                          interpolation=cv2.INTER_AREA)
+                
+                downsample_time = time.time() - downsample_start
+                print(f"Downsampled from {original_shape} to {ref_image_raw.shape} "
+                      f"(factor: {downsample_factor}x) in {downsample_time:.3f} seconds")
+
+            # Choose dtype based on precision parameter
+            dtype = cp.complex128 if use_high_precision else cp.complex64
+            
+            # Time the GPU transfer
+            transfer_start = time.time()
+            # Direct transfer to GPU as complex arrays
+            ref_image = cp.asarray(ref_image_raw, dtype=dtype)
+            raw_image = cp.asarray(raw_image_raw, dtype=dtype)
+            transfer_time = time.time() - transfer_start
+            
+            total_time = time.time() - start_time
+            
+            print(f"Image loading completed:")
+            print(f"  File I/O time: {load_time:.3f} seconds")
+            print(f"  GPU transfer time: {transfer_time:.3f} seconds")
+            print(f"  Total loading time: {total_time:.3f} seconds")
+            print(f"  Image dimensions: {ref_image.shape}")
+            print(f"  Precision: {'High (complex128)' if use_high_precision else 'Standard (complex64)'}")
+            
+            return ref_image, raw_image
+            
+        except Exception as e:
+            raise FileNotFoundError(f"Error loading images: {e}")
 
 
 class CoordinateCache:
@@ -89,7 +171,6 @@ class HologramProcessor:
         """
         Compute Fresnel propagation using the angular spectrum method.
         """
-        
         if cached_coords is None:
             cached_coords = self.coord_cache.get_coordinates(image_array.shape)
         
@@ -339,9 +420,10 @@ class SpeedyDIH:
         self.image_loader = ImageLoader()
     
     # Legacy method names for backwards compatibility
-    def load_images(self, ref_path: str, raw_path: str, use_high_precision: bool = False) -> Tuple[cp.ndarray, cp.ndarray]:
+    def load_images(self, ref_path: str, raw_path: str, use_high_precision: bool = False,
+                   downsample_factor: int = 1) -> Tuple[cp.ndarray, cp.ndarray]:
         """Load and prepare images for processing."""
-        return self.image_loader.load_image_pair(ref_path, raw_path, use_high_precision)
+        return self.image_loader.load_image_pair(ref_path, raw_path, use_high_precision, downsample_factor)
     
     def fresnel_propagation(self, image_array: cp.ndarray, propagation_distance: float, cached_coords=None) -> cp.ndarray:
         """Compute Fresnel propagation."""
@@ -352,22 +434,28 @@ class SpeedyDIH:
         """Calculate Tamura coefficient."""
         return TamuraMetric().calculate(image)
     
-    def find_focus(self, ref_path: str, raw_path: str, distance_range: List[float]) -> float:
+    def find_focus(self, ref_path: str, raw_path: str, distance_range: List[float],
+                  downsample_factor: int = 1) -> float:
         """Find optimal focus distance using simple grid search."""
-        ref_image, raw_image = self.load_images(ref_path, raw_path)
+        ref_image, raw_image = self.load_images(ref_path, raw_path, downsample_factor=downsample_factor)
+    
+        
         return self.focus_finder.find_focus_simple(ref_image, raw_image, distance_range)
     
     def find_focus_hierarchical(self, ref_path: str, raw_path: str, min_distance: float, 
-                               max_distance: float, n_points: int = 10, use_high_precision: bool = False) -> float:
+                               max_distance: float, n_points: int = 10, use_high_precision: bool = False,
+                               downsample_factor: int = 1) -> float:
         """Find optimal focus using hierarchical search."""
-        ref_image, raw_image = self.load_images(ref_path, raw_path, use_high_precision)
+        ref_image, raw_image = self.load_images(ref_path, raw_path, use_high_precision, downsample_factor)
+        
         return self.focus_finder.find_focus_hierarchical(ref_image, raw_image, min_distance, max_distance, n_points)
     
     def display_reconstructions(self, ref_path: str, raw_path: str, distance_range: List[float], 
-                              use_high_precision: bool = False) -> None:
+                              use_high_precision: bool = False, downsample_factor: int = 1) -> None:
         """Display reconstructed holograms."""
-        ref_image, raw_image = self.load_images(ref_path, raw_path, use_high_precision)
+        ref_image, raw_image = self.load_images(ref_path, raw_path, use_high_precision, downsample_factor)
         contrast = raw_image / (ref_image**2)
+        
         cached_coords = self.processor.coord_cache.get_coordinates(contrast.shape)
         
         # Pre-compute all reconstructions
@@ -379,10 +467,11 @@ class SpeedyDIH:
         self.visualizer.display_reconstructions(data_images, distance_range)
     
     def display_reconstructions_1second(self, ref_path: str, raw_path: str, distance_range: List[float], 
-                                      use_high_precision: bool = False) -> None:
+                                      use_high_precision: bool = False, downsample_factor: int = 1) -> None:
         """Display reconstructed holograms for 1 second."""
-        ref_image, raw_image = self.load_images(ref_path, raw_path, use_high_precision)
+        ref_image, raw_image = self.load_images(ref_path, raw_path, use_high_precision, downsample_factor)
         contrast = raw_image / (ref_image**2)
+        
         cached_coords = self.processor.coord_cache.get_coordinates(contrast.shape)
         
         # Pre-compute all reconstructions
@@ -394,9 +483,10 @@ class SpeedyDIH:
         self.visualizer.display_reconstructions(data_images, distance_range, show_duration=1.0)
     
     def display_tamura_graph(self, ref_path: str, raw_path: str, distance_range: List[float], 
-                           save_path: Optional[str] = None) -> None:
+                           save_path: Optional[str] = None, downsample_factor: int = 1) -> None:
         """Display Tamura coefficient graph."""
-        ref_image, raw_image = self.load_images(ref_path, raw_path)
+        ref_image, raw_image = self.load_images(ref_path, raw_path, downsample_factor=downsample_factor)
+        
         results = self.focus_finder._calculate_focus_metrics(ref_image, raw_image, distance_range)
         # Convert to expected format
         tamura_results = [{'distance': r['distance'], 'metric_value': r['metric_value']} for r in results]

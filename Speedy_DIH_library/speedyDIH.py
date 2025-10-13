@@ -17,19 +17,9 @@ class ImageLoader:
     """Handles image loading and preprocessing operations."""
     
     @staticmethod
-    def load_image_pair(ref_path: str, raw_path: str, use_high_precision: bool = False, 
-                       downsample_factor: int = 1) -> Tuple[cp.ndarray, cp.ndarray]:
+    def load_image_pair(ref_path: str, raw_path: str, use_high_precision: bool = False) -> Tuple[cp.ndarray, cp.ndarray]:
         """
         Load and prepare reference and raw hologram images for processing.
-        
-        Args:
-            ref_path: Path to reference image
-            raw_path: Path to raw hologram image
-            use_high_precision: Use complex128 instead of complex64
-            downsample_factor: Factor to downsample images (1=no downsampling, 2=half resolution, etc.)
-        
-        Returns:
-            Tuple of (ref_image, raw_image) as CuPy arrays
         """
         start_time = time.time()
         
@@ -56,24 +46,6 @@ class ImageLoader:
 
             if ref_image_raw is None or raw_image_raw is None:
                 raise FileNotFoundError(f"Failed to load images from {ref_path} or {raw_path}")
-
-            # Downsample images if requested
-            if downsample_factor > 1:
-                downsample_start = time.time()
-                original_shape = ref_image_raw.shape
-                
-                # Use cv2.resize with INTER_AREA for best quality downsampling
-                new_width = ref_image_raw.shape[1] // downsample_factor
-                new_height = ref_image_raw.shape[0] // downsample_factor
-                
-                ref_image_raw = cv2.resize(ref_image_raw, (new_width, new_height), 
-                                          interpolation=cv2.INTER_AREA)
-                raw_image_raw = cv2.resize(raw_image_raw, (new_width, new_height), 
-                                          interpolation=cv2.INTER_AREA)
-                
-                downsample_time = time.time() - downsample_start
-                print(f"Downsampled from {original_shape} to {ref_image_raw.shape} "
-                      f"(factor: {downsample_factor}x) in {downsample_time:.3f} seconds")
 
             # Choose dtype based on precision parameter
             dtype = cp.complex128 if use_high_precision else cp.complex64
@@ -171,6 +143,7 @@ class HologramProcessor:
         """
         Compute Fresnel propagation using the angular spectrum method.
         """
+        
         if cached_coords is None:
             cached_coords = self.coord_cache.get_coordinates(image_array.shape)
         
@@ -420,10 +393,9 @@ class SpeedyDIH:
         self.image_loader = ImageLoader()
     
     # Legacy method names for backwards compatibility
-    def load_images(self, ref_path: str, raw_path: str, use_high_precision: bool = False,
-                   downsample_factor: int = 1) -> Tuple[cp.ndarray, cp.ndarray]:
+    def load_images(self, ref_path: str, raw_path: str, use_high_precision: bool = False) -> Tuple[cp.ndarray, cp.ndarray]:
         """Load and prepare images for processing."""
-        return self.image_loader.load_image_pair(ref_path, raw_path, use_high_precision, downsample_factor)
+        return self.image_loader.load_image_pair(ref_path, raw_path, use_high_precision)
     
     def fresnel_propagation(self, image_array: cp.ndarray, propagation_distance: float, cached_coords=None) -> cp.ndarray:
         """Compute Fresnel propagation."""
@@ -434,117 +406,55 @@ class SpeedyDIH:
         """Calculate Tamura coefficient."""
         return TamuraMetric().calculate(image)
     
-    def find_focus(self, ref_path: str, raw_path: str, distance_range: List[float],
-                  downsample_factor: int = 1) -> float:
+    def find_focus(self, ref_path: str, raw_path: str, distance_range: List[float]) -> float:
         """Find optimal focus distance using simple grid search."""
-        ref_image, raw_image = self.load_images(ref_path, raw_path, downsample_factor=downsample_factor)
-        
-        # Use adjusted pixel size if downsampling
-        if downsample_factor > 1:
-            effective_pixel_size = self.pixel_size * downsample_factor
-            temp_processor = HologramProcessor(self.wavelength, effective_pixel_size)
-            temp_finder = FocusFinder(temp_processor, TamuraMetric())
-            return temp_finder.find_focus_simple(ref_image, raw_image, distance_range)
-        
+        ref_image, raw_image = self.load_images(ref_path, raw_path)
         return self.focus_finder.find_focus_simple(ref_image, raw_image, distance_range)
     
     def find_focus_hierarchical(self, ref_path: str, raw_path: str, min_distance: float, 
-                               max_distance: float, n_points: int = 10, use_high_precision: bool = False,
-                               downsample_factor: int = 1) -> float:
+                               max_distance: float, n_points: int = 10, use_high_precision: bool = False) -> float:
         """Find optimal focus using hierarchical search."""
-        ref_image, raw_image = self.load_images(ref_path, raw_path, use_high_precision, downsample_factor)
-        
-        # Use adjusted pixel size if downsampling
-        if downsample_factor > 1:
-            effective_pixel_size = self.pixel_size * downsample_factor
-            temp_processor = HologramProcessor(self.wavelength, effective_pixel_size)
-            temp_finder = FocusFinder(temp_processor, TamuraMetric())
-            return temp_finder.find_focus_hierarchical(ref_image, raw_image, min_distance, max_distance, n_points)
-        
+        ref_image, raw_image = self.load_images(ref_path, raw_path, use_high_precision)
         return self.focus_finder.find_focus_hierarchical(ref_image, raw_image, min_distance, max_distance, n_points)
     
     def display_reconstructions(self, ref_path: str, raw_path: str, distance_range: List[float], 
-                              use_high_precision: bool = False, downsample_factor: int = 1) -> None:
+                              use_high_precision: bool = False) -> None:
         """Display reconstructed holograms."""
-        ref_image, raw_image = self.load_images(ref_path, raw_path, use_high_precision, downsample_factor)
+        ref_image, raw_image = self.load_images(ref_path, raw_path, use_high_precision)
         contrast = raw_image / (ref_image**2)
+        cached_coords = self.processor.coord_cache.get_coordinates(contrast.shape)
         
-        # Use adjusted pixel size if downsampling
-        if downsample_factor > 1:
-            effective_pixel_size = self.pixel_size * downsample_factor
-            temp_processor = HologramProcessor(self.wavelength, effective_pixel_size)
-            temp_visualizer = HologramVisualizer(temp_processor)
-            cached_coords = temp_processor.coord_cache.get_coordinates(contrast.shape)
-            
-            # Pre-compute all reconstructions
-            data_images = []
-            for distance in distance_range:
-                reconstructed_field = temp_processor.fresnel_propagation(contrast, distance, cached_coords)
-                data_images.append(reconstructed_field)
-            
-            temp_visualizer.display_reconstructions(data_images, distance_range)
-        else:
-            cached_coords = self.processor.coord_cache.get_coordinates(contrast.shape)
-            
-            # Pre-compute all reconstructions
-            data_images = []
-            for distance in distance_range:
-                reconstructed_field = self.processor.fresnel_propagation(contrast, distance, cached_coords)
-                data_images.append(reconstructed_field)
-            
-            self.visualizer.display_reconstructions(data_images, distance_range)
+        # Pre-compute all reconstructions
+        data_images = []
+        for distance in distance_range:
+            reconstructed_field = self.processor.fresnel_propagation(contrast, distance, cached_coords)
+            data_images.append(reconstructed_field)
+        
+        self.visualizer.display_reconstructions(data_images, distance_range)
     
     def display_reconstructions_1second(self, ref_path: str, raw_path: str, distance_range: List[float], 
-                                      use_high_precision: bool = False, downsample_factor: int = 1) -> None:
+                                      use_high_precision: bool = False) -> None:
         """Display reconstructed holograms for 1 second."""
-        ref_image, raw_image = self.load_images(ref_path, raw_path, use_high_precision, downsample_factor)
+        ref_image, raw_image = self.load_images(ref_path, raw_path, use_high_precision)
         contrast = raw_image / (ref_image**2)
+        cached_coords = self.processor.coord_cache.get_coordinates(contrast.shape)
         
-        # Use adjusted pixel size if downsampling
-        if downsample_factor > 1:
-            effective_pixel_size = self.pixel_size * downsample_factor
-            temp_processor = HologramProcessor(self.wavelength, effective_pixel_size)
-            temp_visualizer = HologramVisualizer(temp_processor)
-            cached_coords = temp_processor.coord_cache.get_coordinates(contrast.shape)
-            
-            # Pre-compute all reconstructions
-            data_images = []
-            for distance in distance_range:
-                reconstructed_field = temp_processor.fresnel_propagation(contrast, distance, cached_coords)
-                data_images.append(reconstructed_field)
-            
-            temp_visualizer.display_reconstructions(data_images, distance_range, show_duration=1.0)
-        else:
-            cached_coords = self.processor.coord_cache.get_coordinates(contrast.shape)
-            
-            # Pre-compute all reconstructions
-            data_images = []
-            for distance in distance_range:
-                reconstructed_field = self.processor.fresnel_propagation(contrast, distance, cached_coords)
-                data_images.append(reconstructed_field)
-            
-            self.visualizer.display_reconstructions(data_images, distance_range, show_duration=1.0)
+        # Pre-compute all reconstructions
+        data_images = []
+        for distance in distance_range:
+            reconstructed_field = self.processor.fresnel_propagation(contrast, distance, cached_coords)
+            data_images.append(reconstructed_field)
+        
+        self.visualizer.display_reconstructions(data_images, distance_range, show_duration=1.0)
     
     def display_tamura_graph(self, ref_path: str, raw_path: str, distance_range: List[float], 
-                           save_path: Optional[str] = None, downsample_factor: int = 1) -> None:
+                           save_path: Optional[str] = None) -> None:
         """Display Tamura coefficient graph."""
-        ref_image, raw_image = self.load_images(ref_path, raw_path, downsample_factor=downsample_factor)
-        
-        # Use adjusted pixel size if downsampling
-        if downsample_factor > 1:
-            effective_pixel_size = self.pixel_size * downsample_factor
-            temp_processor = HologramProcessor(self.wavelength, effective_pixel_size)
-            temp_finder = FocusFinder(temp_processor, TamuraMetric())
-            temp_visualizer = HologramVisualizer(temp_processor)
-            results = temp_finder._calculate_focus_metrics(ref_image, raw_image, distance_range)
-            # Convert to expected format
-            tamura_results = [{'distance': r['distance'], 'metric_value': r['metric_value']} for r in results]
-            temp_visualizer.display_focus_graph(tamura_results, save_path)
-        else:
-            results = self.focus_finder._calculate_focus_metrics(ref_image, raw_image, distance_range)
-            # Convert to expected format
-            tamura_results = [{'distance': r['distance'], 'metric_value': r['metric_value']} for r in results]
-            self.visualizer.display_focus_graph(tamura_results, save_path)
+        ref_image, raw_image = self.load_images(ref_path, raw_path)
+        results = self.focus_finder._calculate_focus_metrics(ref_image, raw_image, distance_range)
+        # Convert to expected format
+        tamura_results = [{'distance': r['distance'], 'metric_value': r['metric_value']} for r in results]
+        self.visualizer.display_focus_graph(tamura_results, save_path)
 
 
 # Legacy functions for backwards compatibility
