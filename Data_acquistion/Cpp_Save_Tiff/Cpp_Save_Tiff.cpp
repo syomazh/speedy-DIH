@@ -16,217 +16,387 @@
 #include "ArenaApi.h"
 #include "SaveApi.h"
 #include <fstream>
+#include <sstream>
+#include <string>
+#include <thread>
+#include <atomic>
+#include <chrono>
+#include <iomanip>
+#include <iostream>
 
 #define TAB1 "  "
+#define SETTINGS_FILE "BergatronSensorSettings.txt"
+#define SAVE_PATH "Images/test_save/"
 
-// Save: Tiff
-//    This example introduces saving TIFF image data in the saving library. It
-//    shows the construction of an image parameters object and an image writer,
-//    sets writer to TIFF and saves a single TIFF image.
-
-// =-=-=-=-=-=-=-=-=-
-// =-=- SETTINGS =-=-
-// =-=-=-=-=-=-=-=-=-
-
-// pixel format
-#define PIXEL_FORMAT BGR8
-
-// file name base (will be appended with image number)
-#define FILE_NAME_BASE "Images/Cpp_Save/image"
-#define COUNTER_FILE "image_counter.txt"
-
-// Function to get next image number
-int GetNextImageNumber()
+// Function to load settings from file and apply to device
+void LoadAndApplySettings(Arena::IDevice* pDevice)
 {
-    std::ifstream inFile(COUNTER_FILE);
-    int counter = 1;
-    
-    if (inFile.is_open())
-    {
-        inFile >> counter;
-        inFile.close();
-    }
-    
-    // Write incremented counter back to file
-    std::ofstream outFile(COUNTER_FILE);
-    if (outFile.is_open())
-    {
-        outFile << (counter + 1);
-        outFile.close();
-    }
-    
-    return counter;
+	std::cout << TAB1 << "Loading settings from " << SETTINGS_FILE << "\n";
+	
+	GenApi::INodeMap* pNodeMap = pDevice->GetNodeMap();
+	
+	// Read settings file
+	std::ifstream file(SETTINGS_FILE);
+	if (!file.is_open())
+	{
+		std::cout << TAB1 << "Warning: Could not open settings file\n";
+		return;
+	}
+	
+	int settingsApplied = 0;
+	int settingsFailed = 0;
+	std::string line;
+	
+	while (std::getline(file, line))
+	{
+		// Skip comments and empty lines
+		if (line.empty() || line[0] == '#')
+			continue;
+			
+		// Parse line (format: NodeName\tValue)
+		size_t tabPos = line.find('\t');
+		if (tabPos == std::string::npos)
+			continue;
+			
+		std::string nodeName = line.substr(0, tabPos);
+		std::string value = line.substr(tabPos + 1);
+		
+		try
+		{
+			GenApi::INode* pNode = pNodeMap->GetNode(nodeName.c_str());
+			if (!pNode)
+			{
+				std::cout << TAB1 << "  Failed (node not found): " << nodeName << "\n";
+				settingsFailed++;
+				continue;
+			}
+			
+			if (!GenApi::IsWritable(pNode))
+			{
+				std::cout << TAB1 << "  Failed (not writable): " << nodeName << "\n";
+				settingsFailed++;
+				continue;
+			}
+				
+			// Try to set the value based on node type
+			GenApi::EInterfaceType nodeType = pNode->GetPrincipalInterfaceType();
+			
+			if (nodeType == GenApi::intfIInteger)
+			{
+				GenApi::CIntegerPtr pInteger(pNode);
+				pInteger->SetValue(std::stoll(value));
+				settingsApplied++;
+			}
+			else if (nodeType == GenApi::intfIFloat)
+			{
+				GenApi::CFloatPtr pFloat(pNode);
+				pFloat->SetValue(std::stod(value));
+				settingsApplied++;
+			}
+			else if (nodeType == GenApi::intfIBoolean)
+			{
+				GenApi::CBooleanPtr pBoolean(pNode);
+				bool boolValue = (value == "1" || value == "true" || value == "True");
+				pBoolean->SetValue(boolValue);
+				settingsApplied++;
+			}
+			else if (nodeType == GenApi::intfIEnumeration)
+			{
+				GenApi::CEnumerationPtr pEnumeration(pNode);
+				pEnumeration->FromString(value.c_str());
+				settingsApplied++;
+			}
+			else if (nodeType == GenApi::intfIString)
+			{
+				GenApi::CStringPtr pString(pNode);
+				pString->SetValue(value.c_str());
+				settingsApplied++;
+			}
+		}
+		catch (GenICam::GenericException& ge)
+		{
+			std::cout << TAB1 << "  Failed (exception): " << nodeName << " = " << value << " - " << ge.what() << "\n";
+			settingsFailed++;
+		}
+		catch (...)
+		{
+			std::cout << TAB1 << "  Failed (unknown error): " << nodeName << " = " << value << "\n";
+			settingsFailed++;
+		}
+	}
+	
+	file.close();
+	
+	std::cout << TAB1 << "Settings applied: " << settingsApplied << "\n";
+	if (settingsFailed > 0)
+		std::cout << TAB1 << "Settings failed: " << settingsFailed << " (this is often normal)\n";
 }
 
-// =-=-=-=-=-=-=-=-=-
-// =-=- saving da image-=-=-
-// =-=-=-=-=-=-=-=-=-
-
-// (1) converts image to a displayable pixel format
-// (2) prepares image parameters
-// (3) prepares image writer
-// (4) sets image writer to TIFF
-// (5) saves image
-// (6) destroys converted image
-void SaveImage(Arena::IImage* pImage, const char* filename)
+// Function to configure stream settings
+void ConfigureStream(Arena::IDevice* pDevice)
 {
-    // convert image
-    std::cout << TAB1 << "Convert image to " << GetPixelFormatName(PIXEL_FORMAT) << "\n";
-
-    auto pConverted = Arena::ImageFactory::Convert(
-        pImage,
-        PIXEL_FORMAT);
-
-    // prepare image parameters
-    std::cout << TAB1 << "Prepare image parameters\n";
-
-    Save::ImageParams params(
-        pConverted->GetWidth(),
-        pConverted->GetHeight(),
-        pConverted->GetBitsPerPixel());
-
-    // prepare image writer
-    std::cout << TAB1 << "Prepare image writer\n";
-
-    Save::ImageWriter writer(
-        params,
-        filename);
-
-    // Set image writer to TIFF
-    //   Set the output file format of the image writer to TIFF.
-    //   The writer saves the image file as TIFF file even without
-    //	 the extension in the file name. Aside from this setting,
-    //   compression can be set several different compression algorithms, 
-    //   and store tags for separated CMYK by changing the parameters.
-    std::cout << TAB1 << "Set image writer to TIFF\n";
-
-    writer.SetTiff(".tiff", Save::NoCompression, false);
-            
-    // saves image
-    std::cout << TAB1 << "Save image: " << filename << "\n";
-
-    writer << pConverted->GetData();
-    
-    // destroy converted image
-    Arena::ImageFactory::Destroy(pConverted);
-}
-
-// =-=-=-=-=-=-=-=-=-
-// =- PREPARATION -=-
-// =- & CLEAN UP =-=-
-// =-=-=-=-=-=-=-=-=-
-
-Arena::DeviceInfo SelectDevice(std::vector<Arena::DeviceInfo>& deviceInfos)
-{
-	if (deviceInfos.size() == 1)
+	GenApi::INodeMap* pNodeMap = pDevice->GetNodeMap();
+	GenApi::INodeMap* pStreamNodeMap = pDevice->GetTLStreamNodeMap();
+	
+	// Enable packet size auto-negotiation
+	try
 	{
-		std::cout << "\n"
-				  << TAB1 << "Only one device detected: " << deviceInfos[0].ModelName() << TAB1 << deviceInfos[0].SerialNumber() << TAB1 << deviceInfos[0].IpAddressStr() << ".\n";
-		std::cout << TAB1 << "Automatically selecting this device.\n";
-		return deviceInfos[0];
+		std::cout << TAB1 << "Attempting to auto-negotiate packet size...\n";
+		Arena::SetNodeValue<bool>(pNodeMap, "GevSCPSDoNotFragment", false);
+		Arena::ExecuteNode(pStreamNodeMap, "StreamAutoNegotiatePacketSize");
+		std::cout << TAB1 << "Packet size auto-negotiation completed\n";
+		
+		// Check the negotiated packet size
+		int64_t packetSize = Arena::GetNodeValue<int64_t>(pNodeMap, "GevSCPSPacketSize");
+		std::cout << TAB1 << "Negotiated packet size: " << packetSize << " bytes\n";
 	}
-
-	std::cout << "\nSelect device:\n";
-	for (size_t i = 0; i < deviceInfos.size(); i++)
+	catch (GenICam::GenericException& ge)
 	{
-		std::cout << TAB1 << i + 1 << ". " << deviceInfos[i].ModelName() << TAB1 << deviceInfos[i].SerialNumber() << TAB1 << deviceInfos[i].IpAddressStr() << "\n";
+		std::cout << TAB1 << "Warning: Could not auto-negotiate packet size: " << ge.what() << "\n";
+		std::cout << TAB1 << "Attempting to use jumbo frame packet size...\n";
+		
+		// Try jumbo frames first (MTU 9000 is enabled on interface)
+		try
+		{
+			Arena::SetNodeValue<int64_t>(pNodeMap, "GevSCPSPacketSize", 9000);
+			std::cout << TAB1 << "Set packet size to 9000 bytes (jumbo frames)\n";
+		}
+		catch (...)
+		{
+			// Fall back to standard Ethernet if jumbo frames don't work
+			try
+			{
+				Arena::SetNodeValue<int64_t>(pNodeMap, "GevSCPSPacketSize", 1500);
+				std::cout << TAB1 << "Set packet size to 1500 bytes (standard)\n";
+			}
+			catch (...)
+			{
+				std::cout << TAB1 << "Warning: Could not set packet size\n";
+			}
+		}
 	}
-	size_t selection = 0;
-
-	do
+	
+	// Set inter-packet delay to reduce network congestion (helps prevent black lines)
+	try
 	{
-		std::cout << TAB1 << "Make selection (1-" << deviceInfos.size() << "): ";
-		std::cin >> selection;
-
-		if (std::cin.fail())
-		{
-			std::cin.clear();
-			while (std::cin.get() != '\n')
-				;
-			std::cout << TAB1 << "Invalid input. Please enter a number.\n";
-		}
-		else if (selection <= 0 || selection > deviceInfos.size())
-		{
-			std::cout << TAB1 << "Invalid device selected. Please select a device in the range (1-" << deviceInfos.size() << ").\n";
-		}
-
-	} while (selection <= 0 || selection > deviceInfos.size());
-
-	return deviceInfos[selection - 1];
+		// Set delay between packets (in ticks, where 1 tick = 8ns for GigE)
+		// 1000 ticks = 8 microseconds delay
+		Arena::SetNodeValue<int64_t>(pNodeMap, "GevSCPD", 1000);
+		std::cout << TAB1 << "Set inter-packet delay to 1000 ticks (~8us)\n";
+	}
+	catch (GenICam::GenericException& ge)
+	{
+		std::cout << TAB1 << "Warning: Could not set inter-packet delay: " << ge.what() << "\n";
+	}
+	
+	// Increase stream buffer count to handle bursts better
+	try
+	{
+		Arena::SetNodeValue<int64_t>(pStreamNodeMap, "StreamBufferCountMode", 1); // Manual mode
+		Arena::SetNodeValue<int64_t>(pStreamNodeMap, "StreamBufferCountManual", 10);
+		std::cout << TAB1 << "Set stream buffer count to 10\n";
+	}
+	catch (GenICam::GenericException& ge)
+	{
+		std::cout << TAB1 << "Warning: Could not set buffer count: " << ge.what() << "\n";
+	}
+	
+	// Set buffer handling mode
+	Arena::SetNodeValue<GenICam::gcstring>(
+		pStreamNodeMap,
+		"StreamBufferHandlingMode",
+		"NewestOnly");
+		
+	std::cout << TAB1 << "Stream configured\n";
 }
 
 int main()
 {
-	// flag to track when an exception has been thrown
-	bool exceptionThrown = false;
-
-	std::cout << "Cpp_Save_Tiff";
+	// Flag to track if a system is created
+	bool isSystemCreated = false;
+	Arena::ISystem* pSystem = nullptr;
+	Arena::IDevice* pDevice = nullptr;
 
 	try
 	{
-		// prepare example
-		Arena::ISystem* pSystem = Arena::OpenSystem();
+		// Create system
+		std::cout << "Creating system\n";
+		pSystem = Arena::OpenSystem();
+		isSystemCreated = true;
+		
+		// Update and get device list
+		std::cout << "Updating device list\n";
 		pSystem->UpdateDevices(100);
-		std::vector<Arena::DeviceInfo> devices = pSystem->GetDevices();
-		if (devices.size() == 0)
+		std::vector<Arena::DeviceInfo> deviceInfos = pSystem->GetDevices();
+		
+		if (deviceInfos.size() == 0)
 		{
-			std::cout << "\nNo camera connected\nPress enter to complete\n";
-			std::getchar();
-			return 0;
+			std::cout << "No devices found\n";
+			return -1;
 		}
-		Arena::DeviceInfo selectedDevice = SelectDevice(devices);
-		Arena::IDevice* pDevice = pSystem->CreateDevice(selectedDevice);
-
-		// enable stream auto negotiate packet size
-		Arena::SetNodeValue<bool>(pDevice->GetTLStreamNodeMap(), "StreamAutoNegotiatePacketSize", true);
-
-		// enable stream packet resend
-		Arena::SetNodeValue<bool>(pDevice->GetTLStreamNodeMap(), "StreamPacketResendEnable", true);
-
+		
+		std::cout << "Found " << deviceInfos.size() << " device(s)\n";
+		
+		// Create device
+		std::cout << "Creating device\n";
+		pDevice = pSystem->CreateDevice(deviceInfos[0]);
+		
+		// Load and apply settings
+		LoadAndApplySettings(pDevice);
+		
+		// Configure stream
+		ConfigureStream(pDevice);
+		
+		// Get device stream nodemap
+		GenApi::INodeMap* pNodeMap = pDevice->GetNodeMap();
+		
+		// Get image parameters
+		GenApi::CIntegerPtr pWidth = pNodeMap->GetNode("Width");
+		GenApi::CIntegerPtr pHeight = pNodeMap->GetNode("Height");
+		GenApi::CEnumerationPtr pPixelFormat = pNodeMap->GetNode("PixelFormat");
+		
+		std::cout << "\nImage settings:\n";
+		std::cout << TAB1 << "Width: " << pWidth->GetValue() << "\n";
+		std::cout << TAB1 << "Height: " << pHeight->GetValue() << "\n";
+		std::cout << TAB1 << "Pixel Format: " << pPixelFormat->GetCurrentEntry()->GetSymbolic() << "\n";
+		
+		// Get trigger settings
+		GenApi::CEnumerationPtr pTriggerMode = pNodeMap->GetNode("TriggerMode");
+		GenApi::CEnumerationPtr pTriggerSource = pNodeMap->GetNode("TriggerSource");
+		
+		std::cout << "\nTrigger settings:\n";
+		std::cout << TAB1 << "Trigger Mode: " << pTriggerMode->GetCurrentEntry()->GetSymbolic() << "\n";
+		std::cout << TAB1 << "Trigger Source: " << pTriggerSource->GetCurrentEntry()->GetSymbolic() << "\n";
+		
+		// Start stream
+		std::cout << "\nStarting stream...\n";
 		pDevice->StartStream();
-
-		std::cout << "Commence example\n\n";
-        
-        // Get next image number
-        int imageNumber = GetNextImageNumber();
-        
-        std::cout << "Capturing image " << imageNumber << "\n";
-        
-        Arena::IImage* pImage = pDevice->GetImage(2000);
-        
-        // Create filename with image number
-        std::string filename = std::string(FILE_NAME_BASE) + "_" + std::to_string(imageNumber) + ".tiff";
-        
-        SaveImage(pImage, filename.c_str());
-        
-        // clean up current image
-        pDevice->RequeueBuffer(pImage);
-        
-        std::cout << "\nExample complete - image " << imageNumber << " saved as " << filename << "\n";
-
-		// clean up example
+		
+		std::cout << "\nAcquiring images (Press Enter to stop)...\n\n";
+		
+		// Create a separate thread to check for user input
+		std::atomic<bool> stopAcquisition(false);
+		std::thread inputThread([&stopAcquisition]() {
+			std::cin.get();
+			stopAcquisition = true;
+		});
+		
+		int imageCount = 0;
+		int savedCount = 0;
+		auto startTime = std::chrono::high_resolution_clock::now();
+		
+		// Acquisition loop
+		while (!stopAcquisition)
+		{
+			try
+			{
+				// Get image with timeout (1000ms)
+				Arena::IImage* pImage = pDevice->GetImage(1000);
+				
+				imageCount++;
+				
+				// Save image to disk
+				try
+				{
+					std::stringstream filename;
+					filename << SAVE_PATH << "image_" << imageCount << ".tiff";
+					
+					Save::ImageParams params(
+						pImage->GetWidth(),
+						pImage->GetHeight(),
+						pImage->GetBitsPerPixel()
+					);
+					Save::ImageWriter writer(params, filename.str().c_str());
+					writer.Save(pImage->GetData());
+					savedCount++;
+				}
+				catch (GenICam::GenericException& ge)
+				{
+					std::cout << "\nWarning: Could not save image: " << ge.what() << "\n";
+				}
+				
+				// Calculate FPS every second
+				auto currentTime = std::chrono::high_resolution_clock::now();
+				auto duration = std::chrono::duration_cast<std::chrono::seconds>(currentTime - startTime).count();
+				
+				if (duration >= 1)
+				{
+					double fps = imageCount / static_cast<double>(duration);
+					std::cout << "\rImages: " << imageCount 
+							  << " | Saved: " << savedCount
+							  << " | FPS: " << std::fixed << std::setprecision(2) << fps 
+							  << " | Size: " << pImage->GetWidth() << "x" << pImage->GetHeight()
+							  << " | Timestamp: " << pImage->GetTimestamp()
+							  << std::flush;
+				}
+				
+				// Requeue image buffer
+				pDevice->RequeueBuffer(pImage);
+			}
+			catch (GenICam::TimeoutException&)
+			{
+				// Timeout waiting for image - this is expected with trigger mode
+				// Continue waiting
+			}
+		}
+		
+		std::cout << "\n\nStopping acquisition...\n";
+		
+		// Stop stream
 		pDevice->StopStream();
+		
+		// Wait for input thread to finish
+		if (inputThread.joinable())
+			inputThread.join();
+		
+		std::cout << "\nTotal images acquired: " << imageCount << "\n";
+		std::cout << "Total images saved: " << savedCount << "\n";
+		std::cout << "Images saved to: " << SAVE_PATH << "\n";
+		
+		// Destroy device
+		std::cout << "Destroying device\n";
 		pSystem->DestroyDevice(pDevice);
+		
+		// Close system
+		std::cout << "Closing system\n";
 		Arena::CloseSystem(pSystem);
 	}
 	catch (GenICam::GenericException& ge)
 	{
 		std::cout << "\nGenICam exception thrown: " << ge.what() << "\n";
-		exceptionThrown = true;
+		
+		if (pDevice)
+		{
+			pSystem->DestroyDevice(pDevice);
+		}
+		
+		if (isSystemCreated)
+		{
+			Arena::CloseSystem(pSystem);
+		}
+		
+		return -1;
 	}
 	catch (std::exception& ex)
 	{
 		std::cout << "\nStandard exception thrown: " << ex.what() << "\n";
-		exceptionThrown = true;
-	}
-	catch (...)
-	{
-		std::cout << "\nUnexpected exception thrown\n";
-		exceptionThrown = true;
-	}
-
-	if (exceptionThrown)
+		
+		if (pDevice)
+		{
+			pSystem->DestroyDevice(pDevice);
+		}
+		
+		if (isSystemCreated)
+		{
+			Arena::CloseSystem(pSystem);
+		}
+		
 		return -1;
-	else
-		return 0;
+	}
+	
+	std::cout << "\nPress enter to complete\n";
+	std::cin.get();
+	
+	return 0;
 }
+
