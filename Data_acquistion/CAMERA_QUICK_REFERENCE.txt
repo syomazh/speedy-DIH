@@ -1,0 +1,86 @@
+╔══════════════════════════════════════════════════════════════════╗
+║          LUCID PHOENIX CAMERA - QUICK REFERENCE                  ║
+╚══════════════════════════════════════════════════════════════════╝
+
+📋 AFTER REBOOT - CAMERA NOT DETECTED?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ AUTOMATIC (Service is now enabled):
+   • The camera network should configure automatically on boot
+   • Just wait 5-10 seconds after login and camera should work
+
+⚙️  MANUAL (if automatic doesn't work):
+   cd /home/berg/Documents/git/speedy-DIH/Data_acquistion
+   ./setup_camera_network.sh
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔧 SERVICE MANAGEMENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Check if service is running:
+   sudo systemctl status lucid-camera-network.service
+
+Start service manually:
+   sudo systemctl start lucid-camera-network.service
+
+Disable automatic startup:
+   sudo systemctl disable lucid-camera-network.service
+
+Re-enable automatic startup:
+   sudo systemctl enable lucid-camera-network.service
+
+View service logs:
+   sudo journalctl -u lucid-camera-network.service
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📷 RUNNING THE CAMERA SOFTWARE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   cd /home/berg/Documents/git/speedy-DIH/Data_acquistion/Cpp_Save_Tiff
+   ./Cpp_Save_Tiff
+
+Expected output:
+   ✓ Found 1 device(s)
+   ✓ Settings applied
+   ✓ Starting stream...
+   ✓ Acquiring images...
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔍 TROUBLESHOOTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Verify network configuration:
+   ip addr show enP8p1s0
+   # Should show: 169.254.0.1
+
+Check MTU (should be 9000):
+   ip link show enP8p1s0 | grep mtu
+
+Check if camera is physically connected:
+   # Look for link lights on ethernet port
+   # Camera should have power LED on
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚡ WHAT WAS CONFIGURED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+• Interface:  enP8p1s0
+• IP Address: 169.254.0.1/16 (GigE camera subnet)
+• MTU:        9000 bytes (jumbo frames for high-speed imaging)
+• RX Buffers: 32 MB (for smooth data transfer)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📁 FILES CREATED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+setup_camera_network.sh         - Network configuration script
+lucid-camera-network.service    - Systemd service (installed)
+CAMERA_NETWORK_SETUP.md         - Detailed documentation
+CAMERA_QUICK_REFERENCE.txt      - This file
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

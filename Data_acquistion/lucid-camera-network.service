@@ -1,0 +1,13 @@
+[Unit]
+Description=Configure network for Lucid Phoenix GigE Camera
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/berg/Documents/git/speedy-DIH/Data_acquistion/setup_camera_network.sh
+RemainAfterExit=yes
+User=root
+
+[Install]
+WantedBy=multi-user.target
