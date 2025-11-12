@@ -1,0 +1,58 @@
+# Hardware Trigger Configuration - GPIO Line0 Rising Edge
+# ExposureActive trigger is DISABLED for immediate exposure on frame trigger
+
+# Acquisition Settings
+AcquisitionMode	Continuous
+AcquisitionStartMode	Normal
+
+# Disable ExposureActive Trigger (CRITICAL for timing)
+TriggerSelector	ExposureActive
+TriggerMode	Off
+
+# Configure FrameStart Trigger
+TriggerSelector	FrameStart
+TriggerMode	On
+TriggerSource	Line0
+TriggerActivation	RisingEdge
+TriggerDelay	0
+
+# Line Configuration
+LineSelector	Line0
+LineMode	Input
+LineInverter	0
+
+LineSelector	Line1
+LineMode	Output
+LineInverter	0
+
+LineSelector	Line2
+LineMode	Input
+LineInverter	0
+
+LineSelector	Line3
+LineMode	Input
+LineInverter	0
+
+LineSelector	Line4
+LineMode	Output
+LineInverter	0
+
+# Exposure Settings (fixed, not triggered)
+ExposureTimeSelector	Common
+ExposureTime	266.528
+ExposureAuto	Off
+
+# Pixel Format and Sensor Settings
+PixelFormat	Mono16
+SensorShutterMode	GlobalReset
+ADCBitDepth	Bits12
+Width	4024
+Height	3036
+OffsetX	0
+OffsetY	0
+
+# Network/Stream Settings
+DeviceLinkThroughputLimitMode	Off
+GevSCPSPacketSize	9000
+GevSCPD	80
+GevSCPSDoNotFragment	1
