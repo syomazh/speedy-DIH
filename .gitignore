@@ -1,0 +1,40 @@
+# Ignore all Images directories
+Images/
+**/Images/
+
+# Ignore image files
+*.tiff
+*.tif
+*.png
+*.jpg
+*.jpeg
+
+# C++ build artifacts
+*.o
+*.d
+*.out
+*.exe
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Persistence files
+persist.json
+
+# Test and temporary files
+*.tmp
+*.bak
